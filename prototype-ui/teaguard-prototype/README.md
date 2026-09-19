@@ -1,16 +1,61 @@
-# React + Vite
+# TeaGuard
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+**AI-Driven Drone System for Precision Spraying in Sri Lankan Tea Plantations**
 
-Currently, two official plugins are available:
+A research prototype (RP Project — Year 4, Data Science) demonstrating an AI-guided agricultural drone system for tea plantations. The system detects tea plants and anomalies, classifies tea maturity, optimizes flight paths, and compensates spray direction for wind — reducing chemical wastage from indiscriminate spraying.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+> This is a UI/UX prototype. All telemetry, detections, and flight data shown are simulated for demonstration purposes.
 
-## React Compiler
+---
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Project overview
 
-## Expanding the ESLint configuration
+This application is Component 1's interface, extended to also host mockups of Components 2–4 for full-system demonstration during the research presentation and viva.
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+| Component | Name | Focus |
+|---|---|---|
+| 01 | Tea Plant Anomaly Detection | Real-time tea/person/animal/weed detection, spray decisioning, GPS-tracked detection mapping |
+| 02 | Smart Path Optimization | DRL-based energy/mass-aware flight routing and obstacle avoidance |
+| 03 | Tea Maturity Control | Two-pass mapping and prescription-guided variable-rate spraying (Young/Medium/Old) |
+| 04 | Adaptive Spray Control | Wind-aware nozzle compensation using a Random Forest drift prediction model |
+
+---
+
+## Tech stack
+
+- **React** (Vite)
+- **Tailwind CSS v4**
+- **React Router** — client-side routing
+- **Lucide React** — icons
+
+---
+
+## Getting started
+
+### Prerequisites
+
+- [Node.js](https://nodejs.org) (LTS recommended)
+
+### Installation
+
+```bash
+npm install
+```
+
+### Run the development server
+
+```bash
+npm run dev
+```
+
+The app will be available at `http://localhost:5173` (or the port shown in your terminal).
+
+### Build for production
+
+```bash
+npm run build
+```
+
+---
+
+## Project structure
