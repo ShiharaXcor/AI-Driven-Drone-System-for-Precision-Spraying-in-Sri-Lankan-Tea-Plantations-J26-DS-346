@@ -1,0 +1,15 @@
+venv/
+__pycache__/
+*.pyc
+*.tif
+*.tiff
+*.xlsx
+*.mp4
+*.npy
+*.pt
+*.pth
+logs/
+models/
+.vscode/
+.DS_Store
+Thumbs.db
