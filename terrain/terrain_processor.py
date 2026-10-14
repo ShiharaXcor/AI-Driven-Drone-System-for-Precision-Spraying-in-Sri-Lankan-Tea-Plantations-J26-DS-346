@@ -269,10 +269,10 @@ def visualise(elevation, slope_deg, output_path):
     print(f"  Saved: {output_path}")
     plt.close()
 
-
 def main():
     BASE          = os.path.expanduser("~/component3")
     TIFF_PATH     = f"{BASE}/terrain/result.tif"
+    KML_PATH      = f"{BASE}/terrain/result.kml"
     HEIGHTMAP     = f"{BASE}/terrain/heightmap.png"
     SLOPE_GRID    = f"{BASE}/terrain/slope_grid.npy"
     VISUALISATION = f"{BASE}/terrain/terrain_analysis.png"
@@ -283,23 +283,51 @@ def main():
     print("=" * 60)
 
     if not os.path.exists(TIFF_PATH):
-        print(f"\nERROR: File not found: {TIFF_PATH}")
+        print(f"ERROR: File not found: {TIFF_PATH}")
         return
 
     # Step 1 — Get file info
     full_width, full_height, pixel_size_m, bounds = get_tiff_info(TIFF_PATH)
 
-    # Step 2 — Find estate window automatically
-    col_off, row_off, win_w, win_h = find_estate_window(TIFF_PATH)
+    # Step 2 — Use KML boundary for exact estate window
+    # KML confirmed: lon 80.7478-80.7699, lat 6.8827-6.8948
+    # Estate size: 2546m wide x 1395m tall
+    # col_off clamped to 0 (estate starts slightly outside TIFF left edge)
+    col_off = 0
+    row_off = 3899
+    win_w   = 84878  # full estate width in pixels
+    win_h   = 46490  # full estate height in pixels
 
-    # Step 3 — Load that window
-    elevation, pixel_size_m = load_tiff_window(
-        TIFF_PATH, col_off, row_off, win_w, win_h
-    )
+    # Step 3 — Load downsampled version of full estate
+    # Downsample by factor 50 to fit in memory
+    # Result: ~1697 x 929 pixels — covers entire estate
+    print(f"\nLoading full estate (downsampled by 50x)...")
+    with rasterio.open(TIFF_PATH) as ds:
+        pixel_size_deg = abs(ds.transform.a)
+        pixel_size_m   = pixel_size_deg * 111320 * 50  # adjusted for downsample
 
-    if elevation is None:
-        print("ERROR: Could not load valid elevation data.")
-        return
+        out_w = win_w // 50
+        out_h = win_h // 50
+
+        window    = Window(col_off, row_off,
+                           min(win_w, ds.width - col_off),
+                           min(win_h, ds.height - row_off))
+
+        elevation = ds.read(
+            1,
+            window=window,
+            out_shape=(out_h, out_w),
+            resampling=rasterio.enums.Resampling.average
+        ).astype(np.float32)
+
+    elevation[elevation <= 0] = np.nan
+
+    valid = elevation[~np.isnan(elevation)]
+    print(f"  Loaded size:      {elevation.shape}")
+    print(f"  Valid pixels:     {len(valid):,} of {elevation.size:,} ({len(valid)/elevation.size*100:.1f}%)")
+    print(f"  Pixel value min:  {valid.min():.1f}")
+    print(f"  Pixel value max:  {valid.max():.1f}")
+    print(f"  Coverage:         {out_w*50*0.03:.0f}m x {out_h*50*0.03:.0f}m (full estate)")
 
     # Step 4 — Generate Gazebo heightmap
     elev_min, elev_max = generate_heightmap(elevation, HEIGHTMAP)
@@ -311,7 +339,8 @@ def main():
     visualise(elevation, slope_deg, VISUALISATION)
 
     print("\n" + "=" * 60)
-    print("TERRAIN PROCESSING COMPLETE")
+    print("TERRAIN PROCESSING COMPLETE — FULL ESTATE COVERAGE")
+    print(f"  Estate size: 2546m x 1395m")
     print(f"  Heightmap:   {HEIGHTMAP}")
     print(f"  Slope grid:  {SLOPE_GRID}")
     print(f"  Analysis:    {VISUALISATION}")
