@@ -1,0 +1,13 @@
+time_s,battery_pct,tank_L,speed_kmh,altitude_m,flow_Lmin,status,video,terrain,estate
+1,100,19.4,0.0,0.0,0.0,mission_start,video1,flat_moderate,Ouvahkelle
+30,96,19.7,17.2,8.1,0.0,repositioning,video1,flat_moderate,Ouvahkelle
+60,88,19.6,9.0,9.2,0.0,paused,video1,flat_moderate,Ouvahkelle
+120,70,18.0,8.7,6.3,10.29,active_spray,video1,flat_moderate,Ouvahkelle
+180,55,9.94,8.7,6.6,9.72,active_spray,video1,flat_moderate,Ouvahkelle
+240,44,2.13,8.7,6.8,9.97,active_spray,video1,flat_moderate,Ouvahkelle
+300,36,0.0,16.6,13.0,0.0,auto_rth,video1,flat_moderate,Ouvahkelle
+1,99,19.3,0.0,0.0,0.0,mission_start,video3,mountainous,Ouvahkelle_mountain_section
+60,89,18.3,6.4,8.3,0.0,active_spray,video3,mountainous,Ouvahkelle_mountain_section
+150,64,10.3,6.4,4.3,0.0,active_spray,video3,mountainous,Ouvahkelle_mountain_section
+240,43,2.06,6.7,6.2,0.0,obstacle_detected,video3,mountainous,Ouvahkelle_mountain_section
+300,33,0.3,19.9,4.4,0.0,returning,video3,mountainous,Ouvahkelle_mountain_section
