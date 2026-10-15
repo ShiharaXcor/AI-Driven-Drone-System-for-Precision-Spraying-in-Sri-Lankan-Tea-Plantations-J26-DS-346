@@ -1,0 +1,19 @@
+{
+  "model_version": "1.0",
+  "calibration_data": "SULEKO 222 flights + Kenilworth 3 missions",
+  "drone_model": "DJI Agras T25/T20P",
+  "mass_empty_kg": 12.0,
+  "tank_capacity_L": 20.0,
+  "battery_wh": 288.0,
+  "rho": 1.15,
+  "rotor_area": 0.2,
+  "eta": 0.8651601740341452,
+  "k_drag": 0.019666381730971984,
+  "k_climb": 1.15,
+  "n_rotors": 4,
+  "primary_baseline_ha": 0.506,
+  "flat_baseline_ha": 0.59,
+  "kenilworth_drain_heavy_pct_min": 18.0,
+  "kenilworth_drain_light_pct_min": 11.0,
+  "kenilworth_reduction_pct": 38.9
+}

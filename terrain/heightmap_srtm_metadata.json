@@ -1,0 +1,16 @@
+{
+  "source": "NASA SRTM 30m \u2014 real elevation in metres above sea level",
+  "heightmap_size_pixels": 513,
+  "elevation_min": 1392.0,
+  "elevation_max": 1886.0,
+  "elevation_range": 494.0,
+  "gazebo_world_size_m": 2546,
+  "gazebo_height_scale_m": 494.0,
+  "accuracy_note": "SRTM version recommended for physics accuracy",
+  "elevation_min_m": 1392.0,
+  "elevation_max_m": 1886.0,
+  "elevation_range_m": 494.0,
+  "accuracy": "9/10 \u2014 real satellite elevation data",
+  "recommended": true,
+  "use_for": "Gazebo heightmap AND energy model slope"
+}

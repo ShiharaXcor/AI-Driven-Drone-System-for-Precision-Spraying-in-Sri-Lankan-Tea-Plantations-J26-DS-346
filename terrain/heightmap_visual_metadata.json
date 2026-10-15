@@ -1,0 +1,11 @@
+{
+  "source": "Kenilworth orthophoto Band 1 \u2014 visual texture only",
+  "heightmap_size_pixels": 513,
+  "elevation_min": 1.0,
+  "elevation_max": 255.0,
+  "elevation_range": 254.0,
+  "gazebo_world_size_m": 2546,
+  "gazebo_height_scale_m": 254.0,
+  "accuracy_note": "SRTM version recommended for physics accuracy",
+  "warning": "Pixel values are RGB intensity not elevation metres"
+}
