@@ -1,7 +1,7 @@
 # terrain_processor.py
 # Component 3 — Terrain Processing Module
-# Reads a windowed section of the large Kenilworth GeoTIFF
-# to avoid memory issues with the full 34GB file
+# Processes Kenilworth GeoTIFF orthophoto + NASA SRTM real elevation data
+# Produces heightmap for Gazebo and accurate slope grid for energy model
 #
 # Run from Ubuntu terminal:
 #   cd ~/component3
@@ -13,8 +13,9 @@ import matplotlib.pyplot as plt
 from PIL import Image
 import os
 import json
+import xml.etree.ElementTree as ET
 import rasterio
-from rasterio.windows import Window
+from rasterio.windows import Window, from_bounds
 
 def get_tiff_info(tiff_path):
     """Print information about the TIFF file without loading it fully."""
@@ -24,326 +25,265 @@ def get_tiff_info(tiff_path):
         print(f"  Bands:         {ds.count}")
         print(f"  CRS:           {ds.crs}")
         print(f"  Bounds:        {ds.bounds}")
-        transform = ds.transform
+        transform      = ds.transform
         pixel_size_deg = abs(transform.a)
-        pixel_size_m = pixel_size_deg * 111320
+        pixel_size_m   = pixel_size_deg * 111320
         print(f"  Pixel size:    {pixel_size_deg:.8f} deg = {pixel_size_m:.4f} m")
         return ds.width, ds.height, pixel_size_m, ds.bounds
 
 
-def find_estate_window(tiff_path):
-    """
-    Find the window that contains the actual estate data
-    by looking for the region with most valid (non-zero, non-black) pixels.
-    Samples at low resolution to avoid memory issues.
-    """
-    print(f"\nFinding estate window (sampling at low resolution)...")
-
-    with rasterio.open(tiff_path) as ds:
-        step = 50
-        w = ds.width  // step
-        h = ds.height // step
-
-        # Read band 1 downsampled
-        data = ds.read(
-            1,
-            out_shape=(h, w),
-            resampling=rasterio.enums.Resampling.average
-        ).astype(np.float32)
-
-        print(f"  Overview size: {w} x {h} pixels")
-
-        # Mark empty/no-data pixels
-        data[data <= 0] = np.nan
-
-        # Sliding window — find region with most valid data AND highest variation
-        win = 20  # 20 overview pixels = 1000 real pixels
-        best_score = 0
-        best_row, best_col = 0, 0
-
-        for r in range(0, h - win, 2):
-            for c in range(0, w - win, 2):
-                patch = data[r:r+win, c:c+win]
-                valid = patch[~np.isnan(patch)]
-                coverage = len(valid) / (win * win)
-
-                if coverage > 0.7:  # at least 70% valid pixels
-                    variation = float(valid.max() - valid.min())
-                    score = coverage * variation
-                    if score > best_score:
-                        best_score = score
-                        best_row, best_col = r, c
-
-        # Convert overview coordinates back to full resolution
-        real_col = best_col * step
-        real_row = best_row * step
-        real_width  = win * step
-        real_height = win * step
-
-        print(f"  Estate window at pixel ({real_col}, {real_row})")
-        print(f"  Window size: {real_width} x {real_height} pixels")
-        print(f"  Score (coverage x variation): {best_score:.1f}")
-
-        return real_col, real_row, real_width, real_height
-
-
-def load_tiff_window(tiff_path, col_off, row_off, width, height):
-    """
-    Load a specific window of the TIFF.
-    Returns elevation array and pixel size in metres.
-    """
-    print(f"\nLoading window from TIFF...")
-    print(f"  Position: ({col_off}, {row_off})")
-    print(f"  Size:     {width} x {height} pixels")
-
-    with rasterio.open(tiff_path) as ds:
-        pixel_size_deg = abs(ds.transform.a)
-        pixel_size_m   = pixel_size_deg * 111320
-
-        # Clamp to file bounds
-        width  = min(width,  ds.width  - col_off)
-        height = min(height, ds.height - row_off)
-
-        window    = Window(col_off, row_off, width, height)
-        elevation = ds.read(1, window=window).astype(np.float32)
-
-    # Mark empty pixels as NaN
-    elevation[elevation <= 0] = np.nan
-
-    valid = elevation[~np.isnan(elevation)]
-    if len(valid) == 0:
-        print("  ERROR: No valid data in this window.")
-        return None, pixel_size_m
-
-    print(f"  Loaded size:       {elevation.shape}")
-    print(f"  Valid pixels:      {len(valid):,} of {elevation.size:,} "
-          f"({len(valid)/elevation.size*100:.1f}%)")
-    print(f"  Pixel value min:   {valid.min():.1f}")
-    print(f"  Pixel value max:   {valid.max():.1f}")
-    print(f"  Value range:       {valid.max() - valid.min():.1f}")
-
-    return elevation, pixel_size_m
+def parse_kml_boundary(kml_path):
+    """Extract estate boundary coordinates from KML file."""
+    tree        = ET.parse(kml_path)
+    root        = tree.getroot()
+    coords_text = None
+    for elem in root.iter():
+        if 'coordinates' in elem.tag:
+            coords_text = elem.text.strip()
+            break
+    points = []
+    for point in coords_text.split():
+        parts = point.split(',')
+        if len(parts) >= 2:
+            points.append((float(parts[0]), float(parts[1])))
+    lons = [p[0] for p in points]
+    lats = [p[1] for p in points]
+    return min(lons), max(lons), min(lats), max(lats)
 
 
 def generate_heightmap(elevation, output_path, target_size=513):
-    """
-    Generate a Gazebo-compatible greyscale heightmap PNG.
-    Gazebo requires size = 2^n + 1: 129, 257, 513, 1025
-    """
+    """Generate Gazebo-compatible greyscale heightmap PNG."""
     print(f"\nGenerating heightmap ({target_size} x {target_size})...")
-
     valid    = elevation[~np.isnan(elevation)]
     elev_min = valid.min()
     elev_max = valid.max()
-
-    # Fill NaN with minimum value
     elev_filled = np.where(np.isnan(elevation), elev_min, elevation)
-
-    # Normalise to 0-255
     if elev_max > elev_min:
         normalised = ((elev_filled - elev_min) / (elev_max - elev_min) * 255)
     else:
         normalised = np.zeros_like(elev_filled)
-
-    normalised = np.clip(normalised, 0, 255).astype(np.uint8)
-
-    # Resize to target
+    normalised  = np.clip(normalised, 0, 255).astype(np.uint8)
     img         = Image.fromarray(normalised, mode='L')
     img_resized = img.resize((target_size, target_size), Image.LANCZOS)
     img_resized.save(output_path)
-
-    # Save metadata for Gazebo world file generation
     metadata = {
         "heightmap_size_pixels": target_size,
         "pixel_value_min":       float(elev_min),
         "pixel_value_max":       float(elev_max),
-        "pixel_value_range":     float(elev_max - elev_min),
-        "gazebo_world_size_m":   500,
-        "gazebo_height_scale_m": 80,
-        "heightmap_file":        output_path,
-        "note": "This is an orthophoto TIFF. Pixel values are RGB intensity, not metres. "
-                "Elevation in metres estimated from SULEKO flight data (890-1240m range for Hatton)."
+        "gazebo_world_size_m":   2546,
+        "gazebo_height_scale_m": 526,
+        "source":                "Kenilworth orthophoto (visual) + SRTM elevation (physics)",
+        "heightmap_file":        output_path
     }
     meta_path = output_path.replace('.png', '_metadata.json')
     with open(meta_path, 'w') as f:
         json.dump(metadata, f, indent=2)
-
     print(f"  Heightmap saved:  {output_path}")
     print(f"  Metadata saved:   {meta_path}")
-
     return elev_min, elev_max
 
 
-def compute_slope_grid(elevation, pixel_size_m, output_path):
+def process_orthophoto(tiff_path, heightmap_path, viz_path):
     """
-    Compute terrain slope in degrees at every pixel.
-    NaN areas (outside estate) are excluded from statistics.
+    Process Kenilworth orthophoto for Gazebo visual appearance.
+    Uses KML boundary window. Visual only — not for slope calculation.
     """
-    print(f"\nComputing slope grid...")
-    print(f"  Pixel size: {pixel_size_m:.4f} m")
+    print(f"\n{'='*60}")
+    print("ORTHOPHOTO PROCESSING — Kenilworth GeoTIFF")
+    print("Used for: Gazebo 3D terrain visual appearance")
+    print(f"{'='*60}")
 
-    # Fill NaN with nearest valid for gradient — but track mask
-    valid_mask  = ~np.isnan(elevation)
-    valid_min   = elevation[valid_mask].min()
-    elev_filled = np.where(np.isnan(elevation), valid_min, elevation)
+    col_off = 0
+    row_off = 3899
+    win_w   = 84878
+    win_h   = 46490
 
-    # Compute gradient
-    dz_dy, dz_dx = np.gradient(elev_filled, pixel_size_m)
+    print(f"\nLoading full estate (downsampled 50x)...")
+    with rasterio.open(tiff_path) as ds:
+        window = Window(col_off, row_off,
+                        min(win_w, ds.width  - col_off),
+                        min(win_h, ds.height - row_off))
+        out_w  = win_w // 50
+        out_h  = win_h // 50
+        photo  = ds.read(
+            1, window=window,
+            out_shape=(out_h, out_w),
+            resampling=rasterio.enums.Resampling.average
+        ).astype(np.float32)
+
+    photo[photo <= 0] = np.nan
+    valid = photo[~np.isnan(photo)]
+    print(f"  Loaded size:  {photo.shape}")
+    print(f"  Valid pixels: {len(valid):,} ({len(valid)/photo.size*100:.1f}%)")
+    print(f"  Coverage:     ~2546m x 1395m (full estate)")
+
+    generate_heightmap(photo, heightmap_path)
+
+    # Visualise orthophoto
+    fig, ax = plt.subplots(1, 1, figsize=(10, 7))
+    fig.suptitle(
+        'Ouvahkelle Estate — Kenilworth International Orthophoto\n'
+        'Used for Gazebo 3D terrain visual appearance',
+        fontsize=13, fontweight='bold'
+    )
+    im = ax.imshow(photo, cmap='terrain',
+                    vmin=valid.min(), vmax=valid.max())
+    ax.set_title(f'Full estate: ~2546m x 1395m\n'
+                  f'Source: Kenilworth International (data sharing agreement)',
+                  fontsize=11)
+    ax.set_xlabel('East →')
+    ax.set_ylabel('North ↑')
+    plt.colorbar(im, ax=ax, label='Pixel value')
+    plt.tight_layout()
+    plt.savefig(viz_path, dpi=150, bbox_inches='tight')
+    plt.close()
+    print(f"  Orthophoto visualisation: {viz_path}")
+
+    return photo
+
+
+def process_srtm(srtm_path, kml_path, output_dir):
+    """
+    Process NASA SRTM elevation data for accurate slope calculation.
+    This is the data used by the energy model — real metres above sea level.
+    """
+    print(f"\n{'='*60}")
+    print("SRTM ELEVATION PROCESSING — NASA SRTM 30m")
+    print("Used for: Energy model slope input (real elevation in metres)")
+    print(f"{'='*60}")
+
+    min_lon, max_lon, min_lat, max_lat = parse_kml_boundary(kml_path)
+    print(f"\nEstate boundary from KML:")
+    print(f"  Longitude: {min_lon:.4f} to {max_lon:.4f}")
+    print(f"  Latitude:  {min_lat:.4f} to {max_lat:.4f}")
+
+    with rasterio.open(srtm_path) as ds:
+        pixel_size_deg = abs(ds.transform.a)
+        pixel_size_m   = pixel_size_deg * 111320
+        window         = from_bounds(min_lon, min_lat,
+                                     max_lon, max_lat,
+                                     ds.transform)
+        elevation      = ds.read(1, window=window).astype(np.float32)
+
+    elevation[elevation < -100] = np.nan
+
+    valid = elevation[~np.isnan(elevation)]
+    print(f"\nReal elevation data:")
+    print(f"  Grid size:       {elevation.shape}")
+    print(f"  Pixel size:      {pixel_size_m:.1f} m (SRTM 30m resolution)")
+    print(f"  Min elevation:   {valid.min():.1f} m above sea level")
+    print(f"  Max elevation:   {valid.max():.1f} m above sea level")
+    print(f"  Elevation range: {valid.max()-valid.min():.1f} m")
+    print(f"  Mean elevation:  {valid.mean():.1f} m")
+
+    # Compute accurate slope from real elevation
+    dz_dy, dz_dx = np.gradient(elevation, pixel_size_m)
     slope_rad     = np.arctan(np.sqrt(dz_dx**2 + dz_dy**2))
     slope_deg     = np.degrees(slope_rad)
+    slope_deg[np.isnan(elevation)] = np.nan
 
-    # Set slope to NaN outside estate boundary
-    slope_deg[~valid_mask] = np.nan
+    valid_slope = slope_deg[~np.isnan(slope_deg)]
+    print(f"\nReal slope analysis (from SRTM elevation):")
+    print(f"  Min slope:          {valid_slope.min():.1f} degrees")
+    print(f"  Max slope:          {valid_slope.max():.1f} degrees")
+    print(f"  Average slope:      {valid_slope.mean():.1f} degrees")
+    print(f"  Flat  (0-5 deg):    {(valid_slope<5).mean()*100:.1f}%")
+    print(f"  Moderate (5-20):    {((valid_slope>=5)&(valid_slope<20)).mean()*100:.1f}%")
+    print(f"  Steep (>20 deg):    {(valid_slope>=20).mean()*100:.1f}%")
 
     # Save
-    np.save(output_path, slope_deg)
+    slope_path = os.path.join(output_dir, "slope_grid_srtm.npy")
+    elev_path  = os.path.join(output_dir, "elevation_srtm.npy")
+    np.save(slope_path, slope_deg)
+    np.save(elev_path,  elevation)
+    print(f"\n  Slope grid saved:     {slope_path}")
+    print(f"  Elevation grid saved: {elev_path}")
 
-    # Stats on valid area only
-    valid_slope = slope_deg[~np.isnan(slope_deg)]
-    print(f"  Saved:                 {output_path}")
-    print(f"  Slope range:           {valid_slope.min():.1f} to {valid_slope.max():.1f} degrees")
-    print(f"  Average slope:         {valid_slope.mean():.1f} degrees")
-    print(f"  Flat  (0-5 deg):       {(valid_slope < 5).mean()*100:.1f}%")
-    print(f"  Moderate (5-20 deg):   {((valid_slope>=5)&(valid_slope<20)).mean()*100:.1f}%")
-    print(f"  Steep (>20 deg):       {(valid_slope>=20).mean()*100:.1f}%")
-
-    return slope_deg
-
-
-def visualise(elevation, slope_deg, output_path):
-    """Generate terrain analysis visualisation for presentation."""
-    print(f"\nGenerating visualisation...")
-
+    # Visualise SRTM results
     fig, axes = plt.subplots(1, 2, figsize=(16, 7))
     fig.suptitle(
-        'Ouvahkelle Estate — Kenilworth International\n'
-        'Terrain Analysis for Component 3 Navigation System',
-        fontsize=14, fontweight='bold'
+        'Ouvahkelle Estate — Real Elevation and Slope\n'
+        'Source: NASA SRTM 30m Resolution | Used by Component 3 Energy Model',
+        fontsize=13, fontweight='bold'
     )
 
-    # --- Elevation map ---
-    valid    = elevation[~np.isnan(elevation)]
-    elev_min = valid.min()
-    elev_max = valid.max()
-
-    im1 = axes[0].imshow(
-        elevation, cmap='terrain',
-        vmin=elev_min, vmax=elev_max
-    )
+    im1 = axes[0].imshow(elevation, cmap='terrain')
     axes[0].set_title(
-        f'Orthophoto Band 1 (Elevation Proxy)\n'
-        f'Value range: {elev_min:.0f} to {elev_max:.0f}  '
-        f'(variation: {elev_max - elev_min:.0f})',
+        f'Real Elevation (metres above sea level)\n'
+        f'{valid.min():.0f}m to {valid.max():.0f}m  '
+        f'(range: {valid.max()-valid.min():.0f}m)',
         fontsize=11
     )
     axes[0].set_xlabel('East →')
     axes[0].set_ylabel('North ↑')
-    plt.colorbar(im1, ax=axes[0], label='Pixel value')
+    plt.colorbar(im1, ax=axes[0], label='Elevation (m above sea level)')
 
-    # --- Slope map (valid area only) ---
-    valid_slope = slope_deg[~np.isnan(slope_deg)]
-    im2 = axes[1].imshow(
-        slope_deg, cmap='RdYlGn_r',
-        vmin=0, vmax=45
-    )
+    im2 = axes[1].imshow(slope_deg, cmap='RdYlGn_r', vmin=0, vmax=45)
     axes[1].set_title(
-        f'Slope Map (estate area only)\n'
+        f'Real Slope (degrees) — Energy Model Input\n'
         f'Average: {valid_slope.mean():.1f}°  |  '
-        f'Steep (>20°): {(valid_slope >= 20).mean()*100:.1f}%',
+        f'Steep (>20°): {(valid_slope>=20).mean()*100:.1f}%',
         fontsize=11
     )
     axes[1].set_xlabel('East →')
     axes[1].set_ylabel('North ↑')
     plt.colorbar(im2, ax=axes[1], label='Slope (degrees)')
-
     axes[1].text(
         0.02, 0.98,
-        'Green = flat (0-5°)\nYellow = moderate (5-20°)\nRed = steep (>20°)\nWhite = outside estate',
+        f'Green = flat (0-5°): {(valid_slope<5).mean()*100:.1f}%\n'
+        f'Yellow = moderate (5-20°): {((valid_slope>=5)&(valid_slope<20)).mean()*100:.1f}%\n'
+        f'Red = steep (>20°): {(valid_slope>=20).mean()*100:.1f}%',
         transform=axes[1].transAxes, fontsize=9,
         verticalalignment='top',
         bbox=dict(boxstyle='round', facecolor='white', alpha=0.9)
     )
 
+    viz_path = os.path.join(output_dir, "srtm_analysis.png")
     plt.tight_layout()
-    plt.savefig(output_path, dpi=150, bbox_inches='tight')
-    print(f"  Saved: {output_path}")
+    plt.savefig(viz_path, dpi=150, bbox_inches='tight')
     plt.close()
+    print(f"  Visualisation saved:  {viz_path}")
+
+    return slope_deg, elevation
+
 
 def main():
-    BASE          = os.path.expanduser("~/component3")
-    TIFF_PATH     = f"{BASE}/terrain/result.tif"
-    KML_PATH      = f"{BASE}/terrain/result.kml"
-    HEIGHTMAP     = f"{BASE}/terrain/heightmap.png"
-    SLOPE_GRID    = f"{BASE}/terrain/slope_grid.npy"
-    VISUALISATION = f"{BASE}/terrain/terrain_analysis.png"
+    BASE      = os.path.expanduser("~/component3")
+    TIFF_PATH = f"{BASE}/terrain/result.tif"
+    SRTM_PATH = f"{BASE}/terrain/srtm/srtm_53_11.tif"
+    KML_PATH  = f"{BASE}/terrain/result.kml"
+    HEIGHTMAP = f"{BASE}/terrain/heightmap.png"
+    ORTHO_VIZ = f"{BASE}/terrain/orthophoto_analysis.png"
 
     print("=" * 60)
     print("Component 3 — Terrain Processor")
     print("Kenilworth International — Ouvahkelle Estate")
     print("=" * 60)
+    print("\nTwo data sources:")
+    print("  1. Kenilworth orthophoto → Gazebo visual terrain")
+    print("  2. NASA SRTM elevation  → Energy model slope grid")
 
-    if not os.path.exists(TIFF_PATH):
-        print(f"ERROR: File not found: {TIFF_PATH}")
-        return
+    # ── Part 1: Orthophoto for Gazebo visual ──
+    if os.path.exists(TIFF_PATH):
+        process_orthophoto(TIFF_PATH, HEIGHTMAP, ORTHO_VIZ)
+    else:
+        print(f"\nERROR: Orthophoto not found: {TIFF_PATH}")
 
-    # Step 1 — Get file info
-    full_width, full_height, pixel_size_m, bounds = get_tiff_info(TIFF_PATH)
-
-    # Step 2 — Use KML boundary for exact estate window
-    # KML confirmed: lon 80.7478-80.7699, lat 6.8827-6.8948
-    # Estate size: 2546m wide x 1395m tall
-    # col_off clamped to 0 (estate starts slightly outside TIFF left edge)
-    col_off = 0
-    row_off = 3899
-    win_w   = 84878  # full estate width in pixels
-    win_h   = 46490  # full estate height in pixels
-
-    # Step 3 — Load downsampled version of full estate
-    # Downsample by factor 50 to fit in memory
-    # Result: ~1697 x 929 pixels — covers entire estate
-    print(f"\nLoading full estate (downsampled by 50x)...")
-    with rasterio.open(TIFF_PATH) as ds:
-        pixel_size_deg = abs(ds.transform.a)
-        pixel_size_m   = pixel_size_deg * 111320 * 50  # adjusted for downsample
-
-        out_w = win_w // 50
-        out_h = win_h // 50
-
-        window    = Window(col_off, row_off,
-                           min(win_w, ds.width - col_off),
-                           min(win_h, ds.height - row_off))
-
-        elevation = ds.read(
-            1,
-            window=window,
-            out_shape=(out_h, out_w),
-            resampling=rasterio.enums.Resampling.average
-        ).astype(np.float32)
-
-    elevation[elevation <= 0] = np.nan
-
-    valid = elevation[~np.isnan(elevation)]
-    print(f"  Loaded size:      {elevation.shape}")
-    print(f"  Valid pixels:     {len(valid):,} of {elevation.size:,} ({len(valid)/elevation.size*100:.1f}%)")
-    print(f"  Pixel value min:  {valid.min():.1f}")
-    print(f"  Pixel value max:  {valid.max():.1f}")
-    print(f"  Coverage:         {out_w*50*0.03:.0f}m x {out_h*50*0.03:.0f}m (full estate)")
-
-    # Step 4 — Generate Gazebo heightmap
-    elev_min, elev_max = generate_heightmap(elevation, HEIGHTMAP)
-
-    # Step 5 — Compute slope grid
-    slope_deg = compute_slope_grid(elevation, pixel_size_m, SLOPE_GRID)
-
-    # Step 6 — Visualise
-    visualise(elevation, slope_deg, VISUALISATION)
+    # ── Part 2: SRTM for real elevation and slope ──
+    if os.path.exists(SRTM_PATH):
+        slope_deg, elevation = process_srtm(
+            SRTM_PATH, KML_PATH, f"{BASE}/terrain"
+        )
+    else:
+        print(f"\nERROR: SRTM file not found: {SRTM_PATH}")
 
     print("\n" + "=" * 60)
-    print("TERRAIN PROCESSING COMPLETE — FULL ESTATE COVERAGE")
-    print(f"  Estate size: 2546m x 1395m")
-    print(f"  Heightmap:   {HEIGHTMAP}")
-    print(f"  Slope grid:  {SLOPE_GRID}")
-    print(f"  Analysis:    {VISUALISATION}")
+    print("TERRAIN PROCESSING COMPLETE")
+    print(f"  Heightmap (Gazebo):   {HEIGHTMAP}")
+    print(f"  Orthophoto analysis:  {ORTHO_VIZ}")
+    print(f"  SRTM slope grid:      {BASE}/terrain/slope_grid_srtm.npy")
+    print(f"  SRTM elevation:       {BASE}/terrain/elevation_srtm.npy")
+    print(f"  SRTM analysis:        {BASE}/terrain/srtm_analysis.png")
     print("=" * 60)
 
 

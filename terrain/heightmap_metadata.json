@@ -2,9 +2,8 @@
   "heightmap_size_pixels": 513,
   "pixel_value_min": 1.0,
   "pixel_value_max": 255.0,
-  "pixel_value_range": 254.0,
-  "gazebo_world_size_m": 500,
-  "gazebo_height_scale_m": 80,
-  "heightmap_file": "/home/amanda/component3/terrain/heightmap.png",
-  "note": "This is an orthophoto TIFF. Pixel values are RGB intensity, not metres. Elevation in metres estimated from SULEKO flight data (890-1240m range for Hatton)."
+  "gazebo_world_size_m": 2546,
+  "gazebo_height_scale_m": 526,
+  "source": "Kenilworth orthophoto (visual) + SRTM elevation (physics)",
+  "heightmap_file": "/home/amanda/component3/terrain/heightmap.png"
 }
