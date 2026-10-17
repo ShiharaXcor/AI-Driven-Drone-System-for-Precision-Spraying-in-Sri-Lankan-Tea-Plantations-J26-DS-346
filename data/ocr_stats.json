@@ -1,0 +1,12 @@
+{
+  "video1_points": 2334,
+  "video3_points": 1936,
+  "total_points": 4270,
+  "drain_heavy_pct_min": 18.0,
+  "drain_light_pct_min": 11.0,
+  "reduction_pct": 38.9,
+  "target_pct": 38.9,
+  "method": "OCR with anchor-based correction",
+  "anchor_points_v1": 7,
+  "anchor_points_v3": 5
+}
