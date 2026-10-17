@@ -40,6 +40,7 @@ LIQUID_L   = 20.0
 L_PER_M    = 0.0306         # litres per metre of spraying (SULEKO ~51 L/ha at 6 m)
 RTH_BATT   = 20.0           # return-to-home battery (%)
 SENSE_M    = 15.0           # obstacle sensor range
+COV_WIN_M  = 12.0           # radius for the coverage-sector feature (ext24 only)
 COLLIDE_M  = 1.0            # canopy contact margin
 WARN_M     = 3.0            # warning distance (proposal: stop within 3 m)
 N_TREES    = 8
@@ -74,14 +75,22 @@ def load_elevation():
 class TeaSprayEnv(gym.Env):
     metadata = {"render_modes": []}
 
-    def __init__(self, seed=None, terminate_on_collision=True, use_mass=True):
+    def __init__(self, seed=None, terminate_on_collision=True, use_mass=True, obs_mode="spec16"):
         super().__init__()
+        self.obs_mode = obs_mode        # 'spec16' = proposal state; 'ext24' = + 8 coverage sectors
         self.model = load_model()
         self.z_srtm, self.z_path = load_elevation()
         self.terminate_on_collision = terminate_on_collision
         self.use_mass = use_mass      # False = ablation: energy model ignores m(t)
         self.action_space = spaces.Box(-1.0, 1.0, shape=(3,), dtype=np.float32)
-        self.observation_space = spaces.Box(0.0, 1.0, shape=(16,), dtype=np.float32)
+        n_obs = 16 if obs_mode == "spec16" else 24
+        self.observation_space = spaces.Box(0.0, 1.0, shape=(n_obs,), dtype=np.float32)
+        k = int(COV_WIN_M / COV_DX)
+        oy, ox = np.mgrid[-k:k + 1, -k:k + 1]
+        ang = np.arctan2(oy, ox)
+        self._cov_k = k
+        self._cov_sec = (((ang + np.pi / 8) % (2 * np.pi)) // (np.pi / 4)).astype(int)
+        self._cov_ok = (ox ** 2 + oy ** 2) > 0
         self.n_t = int(PATCH_M / TERRAIN_DX)
         self.n_c = int(PATCH_M / COV_DX)
         cc = (np.arange(self.n_c) + 0.5) * COV_DX
@@ -153,7 +162,7 @@ class TeaSprayEnv(gym.Env):
 
     # ---- coverage ---------------------------------------------------------
     def _spray_at(self, x, y):
-        near = (np.abs(self.cx - x) <= SWATH_M / 2) & (np.abs(self.cy - y) <= SWATH_M / 2)
+        near = (self.cx - x) ** 2 + (self.cy - y) ** 2 <= (SWATH_M / 2) ** 2     # circular footprint
         new = near & ~self.covered
         self.covered |= near
         return int(new.sum()) * COV_DX ** 2 / 10000.0      # hectares
@@ -167,6 +176,19 @@ class TeaSprayEnv(gym.Env):
         i  = np.argmin(dx * dx + dy * dy)
         n  = np.hypot(dx[i], dy[i]) + 1e-6
         return dx[i] / n, dy[i] / n
+
+    def _coverage_sectors(self):
+        """fraction of ground still to spray in 8 sectors around the drone (ext24)"""
+        k = self._cov_k
+        pad = np.pad(self.covered, k, constant_values=True)      # walls count as done
+        i = int(np.clip(self.x / COV_DX, 0, self.n_c - 1))
+        j = int(np.clip(self.y / COV_DX, 0, self.n_c - 1))
+        win = (~pad[i:i + 2 * k + 1, j:j + 2 * k + 1]).T         # rows = y, cols = x
+        out = np.zeros(8)
+        for sct in range(8):
+            m = (self._cov_sec == sct) & self._cov_ok
+            out[sct] = win[m].mean()
+        return out
 
     # ---- energy -----------------------------------------------------------
     def _drain_pct(self, speed, rise_rate, dt):
@@ -205,6 +227,8 @@ class TeaSprayEnv(gym.Env):
              min(drain, 30.0) / 30.0],
             self._sector_dists() / SENSE_M,
             [(ndx + 1) / 2, (ndy + 1) / 2]])
+        if self.obs_mode == "ext24":
+            obs = np.concatenate([obs, self._coverage_sectors()])
         return np.clip(obs, 0, 1).astype(np.float32)
 
     def step(self, action):
