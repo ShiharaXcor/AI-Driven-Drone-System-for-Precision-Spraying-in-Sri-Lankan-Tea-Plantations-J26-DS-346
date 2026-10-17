@@ -1,7 +1,8 @@
 {
   "model_version": "3.0",
   "fitted_on": "Kenilworth OCR telemetry (full 18 %/min, near-empty 11 %/min)",
-  "validated_on": "SULEKO real flights (not used in fitting)",
+  "level_scale_fitted_on": "SULEKO T20P mean battery drop",
+  "validated_on": "SULEKO T25 flat flights (independent)",
   "mass_empty_kg": 26.508556981103506,
   "tank_capacity_L": 20.0,
   "battery_wh_effective": 777.6197971316774,
@@ -11,6 +12,7 @@
   "eta": 0.72,
   "k_drag": 0.025,
   "k_climb": 1.15,
+  "suleko_level_scale": 0.9153901723414368,
   "primary_baseline_ha": 0.5061,
   "flat_baseline_ha": 0.5896,
   "kenilworth_fit": {
@@ -20,18 +22,18 @@
   },
   "suleko_validation": {
     "T20P": {
-      "pred_drain": 13.322991188898484,
+      "pred_drain": 12.195735200509228,
       "real_drain": 12.206226639296586,
-      "pred_drop": 85.60498633030478,
+      "pred_drop": 78.36196319018404,
       "real_drop": 78.36196319018404,
-      "error_pct": 9.24303430548564
+      "error_pct": 0.0
     },
     "T25": {
-      "pred_drain": 12.583765484704687,
+      "pred_drain": 11.519055255748048,
       "real_drain": 10.839104378516604,
-      "pred_drop": 69.13961544562322,
+      "pred_drop": 63.28972449838971,
       "real_drop": 59.49152542372882,
-      "error_pct": 16.21758721628974
+      "error_pct": 6.384437191025433
     }
   },
   "update_frequency_hz": 10

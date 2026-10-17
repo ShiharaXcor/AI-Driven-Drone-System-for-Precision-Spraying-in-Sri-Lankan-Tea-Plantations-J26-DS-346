@@ -7,10 +7,13 @@
 #   full tank  (~18.8 L) -> 18 %/min ,  near-empty (~6 L) -> 11 %/min  (slope 12 deg, 8.7 km/h)
 #   Two unknowns are fitted: empty mass m0 and effective battery energy B_eff.
 #
-# VALIDATION (not fitted) uses SULEKO real flights:
-#   T20P Badulla/Uva (mountainous) and T25 Polonnaruwa (flat).
-#   Measured drain = battery drop / logged flight duration.
-#   The model has never seen these numbers, so the error is an honest test.
+# SULEKO LEVEL SCALE: one number that sets the overall drain level to the
+#   SULEKO T20P aircraft (mean drain %/min). The SHAPE (how drain depends on
+#   tank weight and slope) still comes from Kenilworth. Needed because the
+#   DRL result is compared with the SULEKO baseline (0.506 ha per charge).
+#
+# INDEPENDENT VALIDATION uses SULEKO T25 flat flights, which are used in
+#   neither the fit nor the scale.
 #
 # Run (Ubuntu / WSL):
 #   cd ~/component3 && source venv/bin/activate
@@ -60,6 +63,7 @@ class EnergyModel:
         self.eta             = 0.72
         self.k_drag          = 0.025
         self.k_climb         = 1.15
+        self.level_scale     = 1.0      # 1.0 = Kenilworth aircraft; <1 = SULEKO level
 
     def current_mass(self, liquid_L):
         return self.mass_empty_kg + liquid_L
@@ -79,12 +83,13 @@ class EnergyModel:
         return self.hover_power(mass_kg) + self.climb_power(mass_kg, slope_deg, velocity_ms)
 
     def battery_drain_per_minute(self, mass_kg, slope_deg, velocity_ms):
-        return self.total_power(mass_kg, slope_deg, velocity_ms) / (self.battery_wh * 60) * 100
+        return (self.total_power(mass_kg, slope_deg, velocity_ms)
+                * self.level_scale / (self.battery_wh * 60) * 100)
 
     def energy_cost(self, liquid_L, slope_deg, velocity_ms, dt=0.1):
         """Battery % used in one timestep (10 Hz default) - used by the DRL reward."""
         p = self.total_power(self.current_mass(liquid_L), slope_deg, velocity_ms)
-        return p * dt / 3600 / self.battery_wh * 100
+        return p * self.level_scale * dt / 3600 / self.battery_wh * 100
 
     def drain_at(self, liquid_L, slope_deg, speed_kmh):
         return self.battery_drain_per_minute(
@@ -184,10 +189,27 @@ def calibrate_model(model):
     return model, dict(drain_heavy=dh, drain_light=dl, reduction=red)
 
 
+def calibrate_suleko_scale(model, results):
+    """Set level_scale so the model matches the mean SULEKO T20P battery drop."""
+    print("\n" + "=" * 60)
+    print("SULEKO LEVEL SCALE  - fitted on T20P only")
+    print("=" * 60)
+    if "T20P" not in results:
+        return 1.0
+    r = results["T20P"]
+    model.level_scale = 1.0
+    pred = model.drain_at(r["avg_liquid_L"] / 2, SUL_SLOPE_T20P, SUL_SPEED_KMH) * r["avg_duration_min"]
+    scale = r["avg_drop_pct"] / pred
+    model.level_scale = scale
+    print(f"  Kenilworth-level prediction: {pred:.1f} %   SULEKO T20P real: {r['avg_drop_pct']:.1f} %")
+    print(f"  Fitted level_scale: {scale:.3f}  (SULEKO aircraft uses {100*(1-scale):.1f} % less energy)")
+    return float(scale)
+
+
 def validate_suleko(model, results):
     """Independent test. Mean mass over a flight ~ empty + half of the liquid sprayed."""
     print("\n" + "=" * 60)
-    print("VALIDATION  - SULEKO real flights (NOT used in fitting)")
+    print("VALIDATION  - T25 flat flights are fully independent")
     print("=" * 60)
     out = {}
     for drone, slope in [("T20P", SUL_SLOPE_T20P), ("T25", SUL_SLOPE_T25)]:
@@ -203,7 +225,8 @@ def validate_suleko(model, results):
         print(f"\n  {drone}  (slope {slope} deg, {SUL_SPEED_KMH} km/h assumed)")
         print(f"    Drain rate : model {pred_rate:.1f}  real {r['avg_drain_pct_min']:.1f} %/min")
         print(f"    Battery drop per flight: model {pred_drop:.1f}  real {r['avg_drop_pct']:.1f} %")
-        print(f"    Error: {err:.1f} %   {'PASS' if err <= 10 else 'CHECK'}")
+        tag = 'fitted (scale)' if drone == 'T20P' else 'INDEPENDENT TEST'
+        print(f"    Error: {err:.1f} %   {'PASS' if err <= 10 else 'CHECK'}   [{tag}]")
     if "T20P" in results:
         print("\n  Sensitivity of T20P prediction to the slope assumption:")
         r = results["T20P"]
@@ -223,7 +246,7 @@ def validate_kenilworth(model):
 # Plot and save
 # ------------------------------------------------------------------
 def plot_energy_model(model, results, output_path):
-    print("\nGenerating energy model figure...")
+    print("\nGenerating energy model figure (Kenilworth level)...")
     fig, ax = plt.subplots(2, 2, figsize=(16, 12))
     fig.suptitle("Component 3 - Physics-Based Energy Model\n"
                  "E_total = integral[ P_hover(m(t)) + P_climb(m(t), theta(t), v(t)) ] dt\n"
@@ -266,14 +289,16 @@ def plot_energy_model(model, results, output_path):
 
 
 def save_calibrated_model(model, results, fit, val, path):
+    scale = float(model.level_scale)
     c = dict(
         model_version="3.0",
         fitted_on="Kenilworth OCR telemetry (full 18 %/min, near-empty 11 %/min)",
-        validated_on="SULEKO real flights (not used in fitting)",
+        level_scale_fitted_on="SULEKO T20P mean battery drop",
+        validated_on="SULEKO T25 flat flights (independent)",
         mass_empty_kg=float(model.mass_empty_kg), tank_capacity_L=model.tank_capacity_L,
         battery_wh_effective=float(model.battery_wh), rho=model.rho,
         rotor_area=model.rotor_area, n_rotors=model.n_rotors, eta=model.eta,
-        k_drag=model.k_drag, k_climb=model.k_climb,
+        k_drag=model.k_drag, k_climb=model.k_climb, suleko_level_scale=scale,
         primary_baseline_ha=round(results.get("T20P", {}).get("coverage_ha", 0.506), 4),
         flat_baseline_ha=round(results.get("T25", {}).get("coverage_ha", 0.590), 4),
         kenilworth_fit=fit, suleko_validation=val, update_frequency_hz=10)
@@ -294,8 +319,10 @@ def main():
     df = load_suleko_data(DATA)
     results = analyse_suleko(df) if df is not None else {}
     model, fit = calibrate_model(model)
+    plot_energy_model(model, results, PLOT)        # Kenilworth-level curves
+    if results:
+        calibrate_suleko_scale(model, results)
     val = validate_suleko(model, results) if results else {}
-    plot_energy_model(model, results, PLOT)
     save_calibrated_model(model, results, fit, val, OUT)
     print("\n" + "=" * 60); print("ENERGY MODEL COMPLETE"); print("=" * 60)
 
