@@ -18,4 +18,8 @@ mlruns/
 drl_agent/models/
 drl_agent/runs/
 __pycache__/
-data/synthetic_flights.csv
+data/synthetic_flights.csvregion_*.png
+sample_frame.png
+terrain/srtm/
+terrain/result.kml
+terrain/readme.txt
