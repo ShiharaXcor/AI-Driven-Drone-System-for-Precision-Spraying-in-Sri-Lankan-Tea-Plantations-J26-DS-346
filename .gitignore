@@ -13,3 +13,9 @@ models/
 .vscode/
 .DS_Store
 Thumbs.db
+mlflow.db
+mlruns/
+drl_agent/models/
+drl_agent/runs/
+__pycache__/
+data/synthetic_flights.csv
