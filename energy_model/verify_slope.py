@@ -1,62 +1,52 @@
 # verify_slope.py
-# Verifies slope grid produces realistic battery drain matching SULEKO data
+# Consistency check: does the energy model, driven by the REAL SRTM slope
+# distribution, reproduce a SULEKO T20P flight?
+#   - tank, flight duration and speed come from SULEKO records (not guessed)
+#   - slope is sampled cell-by-cell from the real SRTM grid
 # Run: python3 energy_model/verify_slope.py
 
+import os, sys, json
 import numpy as np
-import json
-import sys
 
-sys.path.insert(0, '/home/amanda/component3/energy_model')
+BASE = os.environ.get("C3_BASE", os.path.expanduser("~/component3"))
+sys.path.insert(0, f"{BASE}/energy_model")
 from energy_model import EnergyModel
 
-# Load calibrated model
-with open('/home/amanda/component3/energy_model/calibrated_model.json') as f:
-    constants = json.load(f)
+# SULEKO T20P Badulla/Uva means (printed by energy_model.py)
+REAL_DROP_PCT = 78.4
+REAL_DURATION = 6.43      # min
+REAL_LIQUID_L = 20.3
+SPEED_KMH     = 6.4       # assumption
 
-model        = EnergyModel()
-model.eta    = constants['eta']
-model.k_drag = constants['k_drag']
+with open(f"{BASE}/energy_model/calibrated_model.json") as f:
+    c = json.load(f)
+model = EnergyModel()
+model.mass_empty_kg = c["mass_empty_kg"]
+model.battery_wh    = c["battery_wh_effective"]
+model.level_scale   = c["suleko_level_scale"]
 
-# Load real slope grid
-slope       = np.load('/home/amanda/component3/terrain/slope_grid_srtm.npy')
-valid_slope = slope[~np.isnan(slope)]
+slope = np.load(f"{BASE}/terrain/slope_grid_srtm.npy")
+valid = slope[~np.isnan(slope)]
+print("=" * 50); print("SLOPE GRID CHECK"); print("=" * 50)
+print(f"Average slope: {valid.mean():.1f} deg   Steep (>20): {(valid >= 20).mean()*100:.1f}%\n")
 
-print("=" * 50)
-print("SLOPE GRID VERIFICATION")
-print("=" * 50)
-print(f"Average slope: {valid_slope.mean():.1f} degrees")
-print(f"Steep (>20):   {(valid_slope>=20).mean()*100:.1f}%")
-print()
-
-# Simulate a full mission using real slope values
-speed_ms = 6.4 / 3.6   # T20P mountainous speed from Kenilworth
-liquid   = 20.0          # start full tank
-battery  = 100.0
-dt_min   = 0.1           # 6 second steps
-step     = 0
-
-while liquid > 0 and battery > 20:
-    slope_now = valid_slope.mean()
-    mass      = model.current_mass(liquid)
-    drain     = model.battery_drain_per_minute(mass, slope_now, speed_ms) * dt_min
-    battery  -= drain
-    liquid    = max(0, liquid - 0.4)
-    step     += 1
-
-used = 100 - battery
-print(f"Simulation result:")
-print(f"  Steps to empty tank: {step}")
-print(f"  Battery used:        {used:.1f}%")
-print(f"  SULEKO T20P actual:  78.4%")
-print(f"  Difference:          {abs(used - 78.4):.1f}%")
-print()
-
-if abs(used - 78.4) < 10:
-    print("Status: VERIFIED ✓")
-    print("Slope grid produces battery drain within 10% of real SULEKO data")
-elif abs(used - 78.4) < 20:
-    print("Status: ACCEPTABLE")
-    print("Slope grid is within 20% of real data — acceptable for DRL training")
-else:
-    print("Status: NEEDS REVIEW")
-    print("Difference > 20% — energy model may need recalibration")
+rng = np.random.default_rng(0)
+dt_min = 0.1
+n_steps = int(round(REAL_DURATION / dt_min))
+liq_step = REAL_LIQUID_L / n_steps
+drops = []
+for _ in range(200):                       # 200 simulated flights
+    liquid, used = REAL_LIQUID_L, 0.0
+    for _ in range(n_steps):
+        s = rng.choice(valid)              # real slope of a random grid cell
+        used += model.drain_at(liquid, s, SPEED_KMH) * dt_min
+        liquid = max(0.0, liquid - liq_step)
+    drops.append(used)
+drops = np.array(drops)
+err = abs(drops.mean() - REAL_DROP_PCT) / REAL_DROP_PCT * 100
+print(f"Simulated battery used: {drops.mean():.1f} % (std {drops.std():.1f})")
+print(f"SULEKO T20P actual:     {REAL_DROP_PCT} %")
+print(f"Error:                  {err:.1f} %")
+print("Status:", "PASS (<10%)" if err < 10 else "CHECK")
+print("\nNote: this checks the whole chain against real flights. It does NOT")
+print("prove the slope grid is correct: the model is only weakly slope-sensitive.")
