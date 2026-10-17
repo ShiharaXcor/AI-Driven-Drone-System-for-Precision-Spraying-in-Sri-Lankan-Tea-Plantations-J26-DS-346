@@ -54,10 +54,10 @@ class LogCallback(BaseCallback):
         pd.DataFrame(self.rows).to_csv(self.csv_path, index=False)
 
 
-def evaluate(model, use_mass):
+def evaluate(model, use_mass, obs_mode="spec16"):
     agent, base = [], []
-    env_a = TeaSprayEnv(terminate_on_collision=True, use_mass=use_mass)
-    env_b = TeaSprayEnv(terminate_on_collision=False, use_mass=use_mass)
+    env_a = TeaSprayEnv(terminate_on_collision=True, use_mass=use_mass, obs_mode=obs_mode)
+    env_b = TeaSprayEnv(terminate_on_collision=False, use_mass=use_mass, obs_mode=obs_mode)
     pol = LawnmowerPolicy()
     for s in EVAL_SEEDS:
         agent.append(run_episode(env_a, lambda o: model.predict(o, deterministic=True)[0], s))
@@ -78,16 +78,17 @@ def main():
     ap.add_argument("--timesteps", type=int, default=100_000)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--no-mass", action="store_true", help="ablation: energy ignores m(t)")
+    ap.add_argument("--obs", choices=["spec16", "ext24"], default="spec16")
     ap.add_argument("--name", default=None)
     a = ap.parse_args()
 
     use_mass = not a.no_mass
-    name = a.name or f"{a.algo}{'_nomass' if a.no_mass else ''}_{a.timesteps//1000}k_s{a.seed}"
+    name = a.name or f"{a.algo}{'_nomass' if a.no_mass else ''}{'_ext24' if a.obs == 'ext24' else ''}_{a.timesteps//1000}k_s{a.seed}"
     out = f"{BASE}/drl_agent/runs/{name}"
     os.makedirs(out, exist_ok=True)
     os.makedirs(f"{BASE}/drl_agent/models", exist_ok=True)
 
-    env = Monitor(TeaSprayEnv(seed=a.seed, use_mass=use_mass),
+    env = Monitor(TeaSprayEnv(seed=a.seed, use_mass=use_mass, obs_mode=a.obs),
                   info_keywords=("coverage_per_charge", "area_ha", "battery_used", "collisions"))
     common = dict(seed=a.seed, device="cpu", verbose=0)
     if a.algo == "ppo":
@@ -103,7 +104,7 @@ def main():
         mlflow.set_experiment("component3-routing")
         mlflow.start_run(run_name=name)
         mlflow.log_params(dict(algo=a.algo, timesteps=a.timesteps, seed=a.seed,
-                               use_mass=use_mass))
+                               use_mass=use_mass, obs=a.obs))
     cb = LogCallback(f"{out}/train_log.csv", use_mlflow)
 
     print(f"Training {name} ...")
@@ -114,7 +115,7 @@ def main():
     print(f"Done: {cb.n} episodes, {a.timesteps} steps, {mins:.1f} min "
           f"({a.timesteps/(mins*60):.0f} steps/s)")
 
-    agent, base = evaluate(model, use_mass)
+    agent, base = evaluate(model, use_mass, a.obs)
     gain = (agent["coverage_per_charge"] / base["coverage_per_charge"] - 1) * 100
     result = dict(name=name, algo=a.algo, use_mass=use_mass, timesteps=a.timesteps,
                   episodes=cb.n, minutes=mins, agent=agent, lawnmower=base,
