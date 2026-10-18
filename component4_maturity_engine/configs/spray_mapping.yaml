@@ -1,0 +1,10 @@
+# Initial maturity-to-spray mapping (Proposal Table 1).
+# To be validated with TRI — kept configurable on purpose.
+mapping:
+  young: low
+  medium: normal
+  mature: high
+
+confidence_threshold: 0.60     # below this → fallback
+low_confidence_action: normal  # or "review"
+baseline_fixed_rate: normal    # fixed-rate comparison baseline

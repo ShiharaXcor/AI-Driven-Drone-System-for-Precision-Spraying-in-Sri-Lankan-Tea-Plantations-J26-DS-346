@@ -1,0 +1,11 @@
+# Data and models (not tracked)
+data/*
+!data/README.md
+*.pt
+*.pth
+*.h5
+
+# Python / notebooks
+__pycache__/
+.ipynb_checkpoints/
+.venv/
