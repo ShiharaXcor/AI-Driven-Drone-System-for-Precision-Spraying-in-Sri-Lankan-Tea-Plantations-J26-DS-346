@@ -2,6 +2,7 @@
 # Component 3 - train PPO or SAC on the tea-spray environment, log to MLflow,
 # then evaluate on held-out patches against the fixed lawnmower route.
 #
+# Options: --obs spec16|ext24|ext26  --vmax <km/h>  --transit  --crash <penalty>
 # Examples (from ~/component3, venv active):
 #   python3 drl_agent/train.py --algo ppo --timesteps 200000
 #   python3 drl_agent/train.py --algo sac --timesteps 100000
@@ -17,7 +18,7 @@ from tea_spray_env import TeaSprayEnv, LawnmowerPolicy, run_episode
 
 from stable_baselines3 import PPO, SAC
 from stable_baselines3.common.monitor import Monitor
-from stable_baselines3.common.callbacks import BaseCallback
+from stable_baselines3.common.callbacks import BaseCallback, CallbackList
 
 try:
     import mlflow
@@ -54,10 +55,54 @@ class LogCallback(BaseCallback):
         pd.DataFrame(self.rows).to_csv(self.csv_path, index=False)
 
 
-def evaluate(model, use_mass, obs_mode="spec16"):
+class BestCheckpoint(BaseCallback):
+    """Every `freq` steps play 10 fixed validation patches with the deterministic policy
+    and keep the weights with the highest mean episode reward.  Training can peak and then
+    drift; this keeps the peak.  The validation patches (seeds 7000-7009) are separate from
+    the 30 test patches, so the final test stays untouched."""
+    VAL_SEEDS = list(range(7000, 7010))
+
+    def __init__(self, env_kw, path, freq=100_000):
+        super().__init__()
+        self.env_kw, self.path, self.freq = env_kw, path, freq
+        self.best, self.next, self.curve, self.env = -np.inf, freq, [], None
+
+    def _score(self):
+        if self.env is None:
+            self.env = TeaSprayEnv(**self.env_kw)
+        tot = []
+        for s in self.VAL_SEEDS:
+            obs, _ = self.env.reset(seed=s)
+            done, r_sum = False, 0.0
+            while not done:
+                a, _ = self.model.predict(obs, deterministic=True)
+                obs, r, te, tr, _ = self.env.step(a)
+                r_sum += r
+                done = te or tr
+            tot.append(r_sum)
+        return float(np.mean(tot))
+
+    def _check(self):
+        sc = self._score()
+        self.curve.append((self.num_timesteps, sc))
+        if sc > self.best:
+            self.best = sc
+            self.model.save(self.path)
+
+    def _on_step(self):
+        if self.num_timesteps >= self.next:
+            self.next += self.freq
+            self._check()
+        return True
+
+    def _on_training_end(self):
+        self._check()
+
+
+def evaluate(model, use_mass, obs_mode="spec16", **kw):
     agent, base = [], []
-    env_a = TeaSprayEnv(terminate_on_collision=True, use_mass=use_mass, obs_mode=obs_mode)
-    env_b = TeaSprayEnv(terminate_on_collision=False, use_mass=use_mass, obs_mode=obs_mode)
+    env_a = TeaSprayEnv(terminate_on_collision=True, use_mass=use_mass, obs_mode=obs_mode, **kw)
+    env_b = TeaSprayEnv(terminate_on_collision=False, use_mass=use_mass, obs_mode=obs_mode, **kw)
     pol = LawnmowerPolicy()
     for s in EVAL_SEEDS:
         agent.append(run_episode(env_a, lambda o: model.predict(o, deterministic=True)[0], s))
@@ -78,24 +123,36 @@ def main():
     ap.add_argument("--timesteps", type=int, default=100_000)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--no-mass", action="store_true", help="ablation: energy ignores m(t)")
-    ap.add_argument("--obs", choices=["spec16", "ext24"], default="spec16")
+    ap.add_argument("--obs", choices=["spec16", "ext24", "ext26"], default="spec16")
+    ap.add_argument("--vmax", type=float, default=6.4, help="spraying speed cap, km/h")
+    ap.add_argument("--transit", action="store_true", help="include base->field->base legs")
+    ap.add_argument("--crash", type=float, default=20.0, help="crash penalty")
+    ap.add_argument("--best", action="store_true", help="keep the best validation checkpoint")
+    ap.add_argument("--val-every", type=int, default=100_000, help="steps between validations")
+    ap.add_argument("--lr-decay", action="store_true", help="linearly lower the learning rate")
     ap.add_argument("--name", default=None)
     a = ap.parse_args()
 
     use_mass = not a.no_mass
-    name = a.name or f"{a.algo}{'_nomass' if a.no_mass else ''}{'_ext24' if a.obs == 'ext24' else ''}_{a.timesteps//1000}k_s{a.seed}"
+    tag = (("_nomass" if a.no_mass else "") + ("" if a.obs == "spec16" else f"_{a.obs}")
+           + ("" if a.vmax == 6.4 else f"_v{a.vmax:g}") + ("_transit" if a.transit else "")
+           + ("" if a.crash == 20.0 else f"_crash{a.crash:g}")
+           + ("_best" if a.best else "") + ("_lrd" if a.lr_decay else ""))
+    name = a.name or f"{a.algo}{tag}_{a.timesteps//1000}k_s{a.seed}"
+    kw = dict(v_max_kmh=a.vmax, transit=a.transit, r_crash=a.crash)
     out = f"{BASE}/drl_agent/runs/{name}"
     os.makedirs(out, exist_ok=True)
     os.makedirs(f"{BASE}/drl_agent/models", exist_ok=True)
 
-    env = Monitor(TeaSprayEnv(seed=a.seed, use_mass=use_mass, obs_mode=a.obs),
+    env = Monitor(TeaSprayEnv(seed=a.seed, use_mass=use_mass, obs_mode=a.obs, **kw),
                   info_keywords=("coverage_per_charge", "area_ha", "battery_used", "collisions"))
     common = dict(seed=a.seed, device="cpu", verbose=0)
+    lr = (lambda p: 3e-4 * (0.1 + 0.9 * p)) if a.lr_decay else 3e-4     # p: 1 -> 0 over training
     if a.algo == "ppo":
-        model = PPO("MlpPolicy", env, n_steps=2048, batch_size=256, learning_rate=3e-4,
+        model = PPO("MlpPolicy", env, n_steps=2048, batch_size=256, learning_rate=lr,
                     gamma=0.995, gae_lambda=0.95, ent_coef=0.0, **common)
     else:
-        model = SAC("MlpPolicy", env, learning_rate=3e-4, buffer_size=200_000,
+        model = SAC("MlpPolicy", env, learning_rate=lr, buffer_size=200_000,
                     learning_starts=5_000, batch_size=256, gamma=0.995, **common)
 
     use_mlflow = mlflow is not None
@@ -104,20 +161,30 @@ def main():
         mlflow.set_experiment("component3-routing")
         mlflow.start_run(run_name=name)
         mlflow.log_params(dict(algo=a.algo, timesteps=a.timesteps, seed=a.seed,
-                               use_mass=use_mass, obs=a.obs))
+                               use_mass=use_mass, obs=a.obs, **kw))
     cb = LogCallback(f"{out}/train_log.csv", use_mlflow)
 
     print(f"Training {name} ...")
     t0 = time.time()
-    model.learn(total_timesteps=a.timesteps, callback=cb)
+    best_path = f"{out}/best_checkpoint"
+    callbacks = cb
+    if a.best:
+        best_cb = BestCheckpoint(dict(use_mass=use_mass, obs_mode=a.obs, **kw), best_path, a.val_every)
+        callbacks = CallbackList([cb, best_cb])
+    model.learn(total_timesteps=a.timesteps, callback=callbacks)
     mins = (time.time() - t0) / 60
+    if a.best:
+        pd.DataFrame(best_cb.curve, columns=["timestep", "val_reward"]).to_csv(f"{out}/val_curve.csv", index=False)
+        print("Validation reward by step:", " ".join(f"{t//1000}k:{v:.0f}" for t, v in best_cb.curve))
+        model = (PPO if a.algo == "ppo" else SAC).load(best_path, device="cpu")
+        print(f"Using best checkpoint (validation reward {best_cb.best:.1f})")
     model.save(f"{BASE}/drl_agent/models/{name}")
     print(f"Done: {cb.n} episodes, {a.timesteps} steps, {mins:.1f} min "
           f"({a.timesteps/(mins*60):.0f} steps/s)")
 
-    agent, base = evaluate(model, use_mass, a.obs)
+    agent, base = evaluate(model, use_mass, a.obs, **kw)
     gain = (agent["coverage_per_charge"] / base["coverage_per_charge"] - 1) * 100
-    result = dict(name=name, algo=a.algo, use_mass=use_mass, timesteps=a.timesteps,
+    result = dict(name=name, algo=a.algo, use_mass=use_mass, timesteps=a.timesteps, settings=dict(obs=a.obs, best=a.best, lr_decay=a.lr_decay, **kw),
                   episodes=cb.n, minutes=mins, agent=agent, lawnmower=base,
                   gain_over_lawnmower_pct=gain, eval_seeds=len(EVAL_SEEDS))
     json.dump(result, open(f"{out}/eval.json", "w"), indent=2)

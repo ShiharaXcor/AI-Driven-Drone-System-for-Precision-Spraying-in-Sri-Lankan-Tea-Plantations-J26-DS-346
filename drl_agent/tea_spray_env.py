@@ -14,8 +14,18 @@
 #   Spatial (10)     : 8 obstacle-sector distances + 2 for the direction
 #                      to the nearest unsprayed ground
 #
+# Options (all default to the original behaviour):
+#   v_max_kmh : spraying speed cap.  Dose per hectare stays fixed (litres per metre
+#               does not depend on speed), so this only changes flight time.
+#   transit   : mission starts at a base 100-400 m away (real SRTM height difference);
+#               energy of the outbound leg (full tank) is charged at start and the
+#               return leg (current tank) is reserved, so the drone must stop spraying
+#               while it can still fly home with a safety reserve.
+#   r_crash   : crash penalty.
+#   obs_mode  : spec16 | ext24 | ext26 (ext24 + battery margin + distance home)
+#
 # Run self-check:  cd ~/component3 && source venv/bin/activate
-#                  python3 rl/tea_spray_env.py
+#                  python3 drl_agent/tea_spray_env.py
 
 import os, sys, glob, json
 import numpy as np
@@ -50,7 +60,12 @@ R_COVER    = 400.0          # reward per hectare newly sprayed
 R_ENERGY   = 1.0            # penalty per battery-% used
 R_TIME     = 0.01           # small per-step penalty
 R_WARN     = 0.2            # penalty per metre inside the warning distance
-R_CRASH    = 20.0           # penalty for canopy contact
+R_CRASH    = 20.0           # penalty for canopy contact (default)
+# ---- whole-mission option (transit=True) ----------------------------------
+V_REF       = 6.4 / 3.6     # reference spraying speed (m/s)
+TRANSIT_V   = 7.0           # m/s base <-> field transit speed (assumption)
+BASE_D      = (100.0, 400.0)  # distance base -> field (m)
+RESERVE_BATT = 10.0         # battery % that must remain after flying home
 
 
 def load_model():
@@ -75,15 +90,19 @@ def load_elevation():
 class TeaSprayEnv(gym.Env):
     metadata = {"render_modes": []}
 
-    def __init__(self, seed=None, terminate_on_collision=True, use_mass=True, obs_mode="spec16"):
+    def __init__(self, seed=None, terminate_on_collision=True, use_mass=True, obs_mode="spec16",
+                 v_max_kmh=6.4, transit=False, r_crash=R_CRASH):
         super().__init__()
+        self.v_max = v_max_kmh / 3.6
+        self.transit = transit
+        self.r_crash = r_crash
         self.obs_mode = obs_mode        # 'spec16' = proposal state; 'ext24' = + 8 coverage sectors
         self.model = load_model()
         self.z_srtm, self.z_path = load_elevation()
         self.terminate_on_collision = terminate_on_collision
         self.use_mass = use_mass      # False = ablation: energy model ignores m(t)
         self.action_space = spaces.Box(-1.0, 1.0, shape=(3,), dtype=np.float32)
-        n_obs = 16 if obs_mode == "spec16" else 24
+        n_obs = {"spec16": 16, "ext24": 24, "ext26": 26}[obs_mode]
         self.observation_space = spaces.Box(0.0, 1.0, shape=(n_obs,), dtype=np.float32)
         k = int(COV_WIN_M / COV_DX)
         oy, ox = np.mgrid[-k:k + 1, -k:k + 1]
@@ -110,6 +129,7 @@ class TeaSprayEnv(gym.Env):
                 break
         else:
             win = np.nan_to_num(win, nan=np.nanmean(self.z_srtm))
+        self._rc = (r0, c0)                               # window origin in the SRTM grid
         fine = zoom(win, k, order=3)                      # interpolated, NOT new data
         self.z = fine[:self.n_t, :self.n_t]
 
@@ -196,6 +216,43 @@ class TeaSprayEnv(gym.Env):
         liquid = self.liquid if self.use_mass else LIQUID_L / 2
         return self.model.energy_cost(liquid, min(ang, 60.0), max(speed, 0.0), dt=dt)
 
+    # ---- whole mission: base <-> field transit ----------------------------
+    def _leg_cost(self, liquid, ang_deg, dist, speed):
+        """battery % to fly `dist` metres at `speed` with the given tank and climb angle"""
+        liq = liquid if self.use_mass else LIQUID_L / 2
+        return self.model.energy_cost(liq, float(np.clip(ang_deg, 0, 60)), speed,
+                                      dt=dist / speed)
+
+    def _setup_transit(self):
+        self.out_cost, self.home_ang, self.home_d = 0.0, 0.0, 0.0
+        if not self.transit:
+            return
+        self.home_d = float(self._rng.uniform(*BASE_D))
+        z = np.nan_to_num(self.z_srtm, nan=float(np.nanmean(self.z_srtm)))
+        R, C = z.shape
+        r0, c0 = self._rc
+        dz = 0.0
+        for _ in range(40):                       # find a base location inside the SRTM tile
+            th = self._rng.uniform(0, 2 * np.pi)
+            rr = r0 + self.home_d / 30.0 * np.sin(th)
+            cc = c0 + self.home_d / 30.0 * np.cos(th)
+            if 0 <= rr <= R - 1 and 0 <= cc <= C - 1:
+                zb = map_coordinates(z, [[rr], [cc]], order=1)[0]
+                dz = float(z[min(r0, R - 1), min(c0, C - 1)] - zb)   # >0: field is uphill of base
+                break
+        self.home_ang = float(np.degrees(np.arctan2(dz, self.home_d)))
+        self.out_cost = self._leg_cost(LIQUID_L, self.home_ang, self.home_d, TRANSIT_V)
+        self.battery -= self.out_cost
+
+    def _return_cost(self):
+        """battery % needed to fly home from here with the tank as it is now"""
+        if not self.transit:
+            return 0.0
+        d_in = float(np.hypot(self.x - 5.0, self.y - 5.0))
+        c_in = self._leg_cost(self.liquid, 0.0, d_in, TRANSIT_V) if d_in > 0.5 else 0.0   # not spraying on the way home
+        c_tr = self._leg_cost(self.liquid, -self.home_ang, self.home_d, TRANSIT_V)
+        return c_in + c_tr
+
     # ---- gym API ----------------------------------------------------------
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
@@ -206,6 +263,7 @@ class TeaSprayEnv(gym.Env):
         self.vx = self.vy = 0.0
         self.liquid, self.battery = LIQUID_L, 100.0
         self.t, self.area_ha, self.path_m, self.collisions = 0, 0.0, 0.0, 0
+        self._setup_transit()
         return self._obs(), {}
 
     def _obs(self):
@@ -216,8 +274,8 @@ class TeaSprayEnv(gym.Env):
             ux, uy = self._nearest_uncovered_dir()
         here  = self._slope_mag(self.x, self.y)
         ahead = self._slope_dir(self.x, self.y, ux, uy)
-        rise  = max(0.0, np.tan(np.radians(ahead)) * V_MAX)
-        drain = self._drain_pct(V_MAX, rise, 60.0)                  # %/min estimate
+        rise  = max(0.0, np.tan(np.radians(ahead)) * self.v_max)
+        drain = self._drain_pct(self.v_max, rise, 60.0)                  # %/min estimate
         m = self.model.current_mass(self.liquid)
         m_max = self.model.current_mass(LIQUID_L)
         ndx, ndy = self._nearest_uncovered_dir()
@@ -227,16 +285,21 @@ class TeaSprayEnv(gym.Env):
              min(drain, 30.0) / 30.0],
             self._sector_dists() / SENSE_M,
             [(ndx + 1) / 2, (ndy + 1) / 2]])
-        if self.obs_mode == "ext24":
+        if self.obs_mode in ("ext24", "ext26"):
             obs = np.concatenate([obs, self._coverage_sectors()])
+        if self.obs_mode == "ext26":
+            floor = RESERVE_BATT if self.transit else RTH_BATT
+            margin = (self.battery - self._return_cost() - floor) / 100.0
+            dhome = np.hypot(self.x - 5.0, self.y - 5.0) / (PATCH_M * 1.42)
+            obs = np.concatenate([obs, [np.clip(margin, 0, 1), np.clip(dhome, 0, 1)]])
         return np.clip(obs, 0, 1).astype(np.float32)
 
     def step(self, action):
         a = np.clip(np.asarray(action, dtype=float), -1, 1)
-        tvx, tvy = a[0] * V_MAX, a[1] * V_MAX
+        tvx, tvy = a[0] * self.v_max, a[1] * self.v_max
         sp = np.hypot(tvx, tvy)
-        if sp > V_MAX:
-            tvx, tvy = tvx * V_MAX / sp, tvy * V_MAX / sp
+        if sp > self.v_max:
+            tvx, tvy = tvx * self.v_max / sp, tvy * self.v_max / sp
         self.vx += 0.6 * (tvx - self.vx)
         self.vy += 0.6 * (tvy - self.vy)
         vz = a[2] * VZ_MAX
@@ -271,13 +334,22 @@ class TeaSprayEnv(gym.Env):
         if gap < WARN_M:
             reward -= R_WARN * (WARN_M - gap)
         if crashed:
-            reward -= R_CRASH
+            reward -= self.r_crash
 
         terminated = (self.liquid <= 0.05) or (crashed and self.terminate_on_collision)
-        truncated = (self.battery <= RTH_BATT) or (self.t >= MAX_STEPS)
-        info = dict(area_ha=self.area_ha, battery_used=100.0 - self.battery,
+        if self.transit:
+            rc = self._return_cost()
+            low = (self.battery - rc) <= RESERVE_BATT
+        else:
+            rc, low = 0.0, self.battery <= RTH_BATT
+        truncated = low or (self.t >= MAX_STEPS)
+        if self.transit and (terminated or truncated):
+            reward -= R_ENERGY * rc                      # the flight home is part of the cost
+        used = 100.0 - self.battery + rc                 # outbound + spraying + return
+        info = dict(area_ha=self.area_ha, battery_used=used,
                     liquid_left=self.liquid, collisions=self.collisions,
-                    coverage_per_charge=(self.area_ha * 100.0 / max(100.0 - self.battery, 1e-6)))
+                    return_pct=rc, transit_out_pct=self.out_cost,
+                    coverage_per_charge=(self.area_ha * 100.0 / max(used, 1e-6)))
         return self._obs(), float(reward), terminated, truncated, info
 
 
@@ -293,16 +365,17 @@ class LawnmowerPolicy:
         self.row, self.dir, self.phase = 0, 1, "sweep"
 
     def act(self, env):
+        k = env.v_max / V_REF                      # thresholds scale with the speed cap
         y_row = 3.0 + self.row * self.spacing
         x_end = PATCH_M - 3.0 if self.dir == 1 else 3.0
         if self.phase == "sweep":
-            if abs(env.x - x_end) < 1.5:
+            if abs(env.x - x_end) < 1.5 * k:
                 self.phase = "shift"
             vx = float(np.sign(x_end - env.x))
             vy = float(np.clip(0.3 * (y_row - env.y), -0.3, 0.3))
         else:
             y_next = 3.0 + (self.row + 1) * self.spacing
-            if abs(env.y - y_next) < 0.8:
+            if abs(env.y - y_next) < 0.8 * k:
                 self.row += 1; self.dir *= -1; self.phase = "sweep"
             vx, vy = 0.0, float(np.sign(y_next - env.y))
         n = max(np.hypot(vx, vy), 1e-6)
