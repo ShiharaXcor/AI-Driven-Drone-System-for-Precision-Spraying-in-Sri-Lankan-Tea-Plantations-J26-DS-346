@@ -5,7 +5,7 @@
 #
 # Two data sources:
 #   1. Kenilworth orthophoto (6.9GB) → Gazebo visual terrain appearance
-#   2. NASA SRTM 30m elevation       → Real slope grid for energy model
+#   2. NASA SRTM 90m (3 arc-second) elevation       → Real slope grid for energy model
 #
 # Run from Ubuntu terminal:
 #   cd ~/component3
@@ -173,7 +173,7 @@ def process_orthophoto(tiff_path, output_dir):
 
 def process_srtm(srtm_path, kml_path, output_dir):
     """
-    Process NASA SRTM 30m elevation data.
+    Process NASA SRTM 90m (3 arc-second) elevation data.
     Produces:
       - Real slope grid for energy model (slope_grid_srtm.npy)
       - Real elevation array (elevation_srtm.npy)
@@ -181,7 +181,7 @@ def process_srtm(srtm_path, kml_path, output_dir):
     All values in real metres above sea level.
     """
     print(f"\n{'='*60}")
-    print("PART 2 — SRTM ELEVATION (NASA SRTM 30m)")
+    print("PART 2 — SRTM ELEVATION (NASA SRTM 90m (3 arc-second))")
     print("Purpose: Real elevation and slope for energy model")
     print(f"{'='*60}")
 
@@ -204,7 +204,7 @@ def process_srtm(srtm_path, kml_path, output_dir):
 
     print(f"\nReal elevation data:")
     print(f"  Grid size:       {elevation.shape[1]} x {elevation.shape[0]} pixels")
-    print(f"  Pixel size:      {pixel_size_m:.1f} m per pixel (SRTM 30m nominal)")
+    print(f"  Pixel size:      {pixel_size_m:.1f} m per pixel (SRTM 90m (3 arc-second) nominal)")
     print(f"  Each pixel covers: ~{pixel_size_m:.0f}m x {pixel_size_m:.0f}m of real ground")
     print(f"  Min elevation:   {valid.min():.1f} m above sea level")
     print(f"  Max elevation:   {valid.max():.1f} m above sea level")
@@ -241,7 +241,7 @@ def process_srtm(srtm_path, kml_path, output_dir):
     srtm_heightmap_path = os.path.join(output_dir, "heightmap_srtm.png")
     save_heightmap(
         elevation, srtm_heightmap_path, 513,
-        "NASA SRTM 30m — real elevation in metres above sea level",
+        "NASA SRTM 90m (3 arc-second) — real elevation in metres above sea level",
         {
             "elevation_min_m":   float(valid.min()),
             "elevation_max_m":   float(valid.max()),
@@ -259,7 +259,7 @@ def process_srtm(srtm_path, kml_path, output_dir):
     fig, axes = plt.subplots(1, 2, figsize=(16, 7))
     fig.suptitle(
         'Ouvahkelle Estate — Real Elevation and Slope\n'
-        'Source: NASA SRTM 30m Resolution — Used by Component 3 Energy Model\n'
+        'Source: NASA SRTM 90m (3 arc-second) Resolution — Used by Component 3 Energy Model\n'
         'Elevation: 1392m to 1886m above sea level (494m range)',
         fontsize=12, fontweight='bold'
     )
