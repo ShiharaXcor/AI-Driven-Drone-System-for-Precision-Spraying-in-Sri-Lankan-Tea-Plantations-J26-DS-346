@@ -1,10 +1,19 @@
-# Initial maturity-to-spray mapping (Proposal Table 1).
-# To be validated with TRI — kept configurable on purpose.
-mapping:
+# Component 4 - maturity-to-spray decision rules.
+# Initial mapping from the proposal (Table 1). Kept in config, not code, so it
+# can be changed after validation with TRI without touching the engine.
+
+mapping:            # maturity class -> spray level
   young: low
   medium: normal
   mature: high
 
-confidence_threshold: 0.60     # below this → fallback
-low_confidence_action: normal  # or "review"
-baseline_fixed_rate: normal    # fixed-rate comparison baseline
+# Relative application rate per level (1.0 = the estate's normal fixed rate).
+# PLACEHOLDER values - to be confirmed with TRI / estate agronomist.
+rate_multiplier:
+  low: 0.7
+  normal: 1.0
+  high: 1.3
+
+confidence_threshold: 0.60     # below this the prediction is not trusted
+low_confidence_level: normal   # safe fallback level for untrusted predictions
+baseline_fixed_level: normal   # what conventional fixed-rate spraying applies everywhere

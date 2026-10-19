@@ -1,20 +1,25 @@
 """
-Component 4 - Function 1 interface: photo in -> maturity per tile out.
+Component 4 - Function 1 interface: photo in -> maturity out.
 
+Whole-image mode (matches the current model, trained on whole photos):
     clf = MaturityClassifier("runs/effnet_b0/best.pt")
-    result = clf.predict_image("data/raw/IMG_1234.jpg")
-    # result["tiles"] = [{"row": 0, "col": 0, "maturity": "medium",
-    #                     "confidence": 0.91, "probs": {...}}, ...]
+    clf.predict_whole("photo.jpg")
+    # {"maturity": "medium", "confidence": 0.91, "probs": {...}, "processing_ms": 12.3}
 
-Uses the same resizing and tiling as the preprocessing step, so the model sees
-exactly what it was trained on. Tiles with too little vegetation are not
-classified (classified = False); the prescription engine decides what to do with them.
+Tile mode (for a future tile-trained model): clf.predict_image("photo.jpg")
+returns one prediction per 224x224 tile.
 
 CLI:
-    python -m src.classifier.predict --model runs/effnet_b0/best.pt --image path/to/photo.jpg
+    # one photo
+    python -m src.classifier.predict --model runs/effnet_b0/best.pt --image photo.jpg
+    # every image in the test split -> CSV for the baseline comparison
+    python -m src.classifier.predict --model runs/effnet_b0/best.pt \
+        --split runs/effnet_b0/splits.csv --images data/pack/images \
+        --out runs/effnet_b0/test_predictions.csv
 """
 
 import argparse
+import csv
 import json
 import time
 from pathlib import Path
@@ -57,6 +62,16 @@ class MaturityClassifier:
                  "probs": {c: round(float(v), 4) for c, v in zip(self.classes, p)}}
                 for p in probs]
 
+    def predict_whole(self, image) -> dict:
+        """Classify a whole photo (file path or BGR array) as one region."""
+        t0 = time.perf_counter()
+        img = read_image(Path(image)) if not isinstance(image, np.ndarray) else image
+        if img is None:
+            raise ValueError(f"Could not read image: {image}")
+        pred = self.predict_tiles([img])[0]
+        pred["processing_ms"] = round((time.perf_counter() - t0) * 1000, 1)
+        return pred
+
     def predict_image(self, image) -> dict:
         """Accepts a file path or a BGR numpy array."""
         t0 = time.perf_counter()
@@ -86,9 +101,39 @@ class MaturityClassifier:
         }
 
 
+def predict_split(clf: MaturityClassifier, split_csv: Path, images_dir: Path,
+                  out_csv: Path, which: str = "test") -> int:
+    """Predict every image of one split and save image,true_label,predicted,confidence."""
+    with open(split_csv, newline="", encoding="utf-8") as f:
+        rows = [r for r in csv.DictReader(f) if r["split"] == which]
+    out_csv.parent.mkdir(parents=True, exist_ok=True)
+    with open(out_csv, "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        w.writerow(["image", "true_label", "predicted", "confidence"] +
+                   [f"p_{c}" for c in clf.classes])
+        for r in rows:
+            pred = clf.predict_whole(images_dir / r["image"])
+            w.writerow([r["image"], r["label"], pred["maturity"], pred["confidence"]] +
+                       [pred["probs"][c] for c in clf.classes])
+    return len(rows)
+
+
 if __name__ == "__main__":
-    p = argparse.ArgumentParser(description="Predict tea maturity per tile")
+    p = argparse.ArgumentParser(description="Predict tea maturity")
     p.add_argument("--model", required=True)
-    p.add_argument("--image", required=True)
+    p.add_argument("--image", help="single photo")
+    p.add_argument("--tiles", action="store_true", help="per-tile output for --image")
+    p.add_argument("--split", type=Path, help="splits.csv from training")
+    p.add_argument("--images", type=Path, help="folder with the split's images")
+    p.add_argument("--which", default="test", choices=["train", "val", "test"])
+    p.add_argument("--out", type=Path, default=Path("test_predictions.csv"))
     a = p.parse_args()
-    print(json.dumps(MaturityClassifier(a.model).predict_image(a.image), indent=2))
+    clf = MaturityClassifier(a.model)
+    if a.split:
+        n = predict_split(clf, a.split, a.images, a.out, a.which)
+        print(f"Predicted {n} {a.which} images -> {a.out}")
+    elif a.image:
+        res = clf.predict_image(a.image) if a.tiles else clf.predict_whole(a.image)
+        print(json.dumps(res, indent=2))
+    else:
+        p.error("give --image or --split")
