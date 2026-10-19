@@ -1,2 +1,4 @@
 drift_model/saved/*.joblib
 __pycache__/
+
+validation/data/
