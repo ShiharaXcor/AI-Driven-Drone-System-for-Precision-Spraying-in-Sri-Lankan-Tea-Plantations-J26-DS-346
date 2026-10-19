@@ -23,3 +23,8 @@ sample_frame.png
 terrain/srtm/
 terrain/result.kml
 terrain/readme.txt
+drl_agent/runs_old_30m/
+drl_agent/models_old_30m/
+*.log
+demo_output/
+data/region_*.png
