@@ -96,7 +96,8 @@ def recommend(wind_ms, wind_dir_deg, heading_deg, temp_c, rh_pct,
             if predict_drift(cw_model, height_m, swath_m, temp_c, rh_pct, d) <= max_drift_m:
                 result["droplet_advice"] = d
                 break
-
+        else:
+            result["needs_external_decision"] = True   # no droplet class brings drift under the limit
     # Advice from literature (only when there is a real crosswind)
     if abs(cw) >= MIN_CROSSWIND_MS:
         if height_m > MAX_RECOMMENDED_HEIGHT_M:

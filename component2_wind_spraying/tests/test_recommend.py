@@ -60,3 +60,9 @@ def test_high_flight_gets_height_advice():
 def test_unknown_droplet_class_raises_error():
     with pytest.raises(ValueError):
         rec.recommend(wind_ms=3.0, wind_dir_deg=90, heading_deg=0, droplet_class="XYZ", **BASE)
+
+
+def test_flags_when_no_setting_is_safe():
+    r = rec.recommend(wind_ms=4.3, wind_dir_deg=90, heading_deg=0, temp_c=34, rh_pct=40, max_drift_m=20)
+    assert r["drift_risk"] == "HIGH" and r["droplet_advice"] is None
+    assert r["needs_external_decision"] is True
