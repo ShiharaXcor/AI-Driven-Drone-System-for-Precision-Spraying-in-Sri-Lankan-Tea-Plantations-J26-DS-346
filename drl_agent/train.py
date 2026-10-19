@@ -3,10 +3,14 @@
 # then evaluate on held-out patches against the fixed lawnmower route.
 #
 # Options: --obs spec16|ext24|ext26  --vmax <km/h>  --transit  --crash <penalty>
+#          --no-mass    world ablation: the energy model ignores payload (tank always half full)
+#          --hide-mass  agent ablation: the physics keeps the real payload, but the agent's
+#                       observation no longer shows liquid / total mass / drain estimate
 # Examples (from ~/component3, venv active):
 #   python3 drl_agent/train.py --algo ppo --timesteps 200000
 #   python3 drl_agent/train.py --algo sac --timesteps 100000
-#   python3 drl_agent/train.py --algo ppo --timesteps 200000 --no-mass   # ablation
+#   python3 drl_agent/train.py --algo ppo --timesteps 200000 --no-mass     # world ablation
+#   python3 drl_agent/train.py --algo ppo --obs ext24 --timesteps 1000000 --hide-mass   # agent ablation
 
 import os, sys, json, time, argparse
 import numpy as np
@@ -100,6 +104,9 @@ class BestCheckpoint(BaseCallback):
 
 
 def evaluate(model, use_mass, obs_mode="spec16", **kw):
+    """`kw` may contain hide_mass. It reaches both environments, which is harmless for the
+    lawnmower (it ignores observations) and keeps the agent's evaluation world identical
+    to its training world."""
     agent, base = [], []
     env_a = TeaSprayEnv(terminate_on_collision=True, use_mass=use_mass, obs_mode=obs_mode, **kw)
     env_b = TeaSprayEnv(terminate_on_collision=False, use_mass=use_mass, obs_mode=obs_mode, **kw)
@@ -122,7 +129,10 @@ def main():
     ap.add_argument("--algo", choices=["ppo", "sac"], default="ppo")
     ap.add_argument("--timesteps", type=int, default=100_000)
     ap.add_argument("--seed", type=int, default=0)
-    ap.add_argument("--no-mass", action="store_true", help="ablation: energy ignores m(t)")
+    ap.add_argument("--no-mass", action="store_true",
+                    help="world ablation: energy ignores m(t) (tank treated as half full)")
+    ap.add_argument("--hide-mass", action="store_true",
+                    help="agent ablation: observation hides payload mass, physics unchanged")
     ap.add_argument("--obs", choices=["spec16", "ext24", "ext26"], default="spec16")
     ap.add_argument("--vmax", type=float, default=6.4, help="spraying speed cap, km/h")
     ap.add_argument("--transit", action="store_true", help="include base->field->base legs")
@@ -133,13 +143,19 @@ def main():
     ap.add_argument("--name", default=None)
     a = ap.parse_args()
 
+    if a.no_mass and a.hide_mass:
+        ap.error("--no-mass and --hide-mass cannot be combined: with --no-mass the payload "
+                 "has no effect on the physics, so there is nothing left to hide")
+
     use_mass = not a.no_mass
-    tag = (("_nomass" if a.no_mass else "") + ("" if a.obs == "spec16" else f"_{a.obs}")
+    tag = (("_nomass" if a.no_mass else "") + ("_blind" if a.hide_mass else "")
+           + ("" if a.obs == "spec16" else f"_{a.obs}")
            + ("" if a.vmax == 6.4 else f"_v{a.vmax:g}") + ("_transit" if a.transit else "")
            + ("" if a.crash == 20.0 else f"_crash{a.crash:g}")
            + ("_best" if a.best else "") + ("_lrd" if a.lr_decay else ""))
     name = a.name or f"{a.algo}{tag}_{a.timesteps//1000}k_s{a.seed}"
-    kw = dict(v_max_kmh=a.vmax, transit=a.transit, r_crash=a.crash)
+    # kw reaches the training env, evaluate(), the BestCheckpoint env, MLflow and eval.json
+    kw = dict(v_max_kmh=a.vmax, transit=a.transit, r_crash=a.crash, hide_mass=a.hide_mass)
     out = f"{BASE}/drl_agent/runs/{name}"
     os.makedirs(out, exist_ok=True)
     os.makedirs(f"{BASE}/drl_agent/models", exist_ok=True)
@@ -184,7 +200,9 @@ def main():
 
     agent, base = evaluate(model, use_mass, a.obs, **kw)
     gain = (agent["coverage_per_charge"] / base["coverage_per_charge"] - 1) * 100
-    result = dict(name=name, algo=a.algo, use_mass=use_mass, timesteps=a.timesteps, settings=dict(obs=a.obs, best=a.best, lr_decay=a.lr_decay, **kw),
+    result = dict(name=name, algo=a.algo, use_mass=use_mass, hide_mass=a.hide_mass,
+                  timesteps=a.timesteps,
+                  settings=dict(obs=a.obs, best=a.best, lr_decay=a.lr_decay, **kw),
                   episodes=cb.n, minutes=mins, agent=agent, lawnmower=base,
                   gain_over_lawnmower_pct=gain, eval_seeds=len(EVAL_SEEDS))
     json.dump(result, open(f"{out}/eval.json", "w"), indent=2)

@@ -2,11 +2,12 @@
 # Component 3 - Gymnasium training environment (Stage 1: terrain-level simulator)
 #
 # A spray drone flies over a 200 m x 200 m patch of the Ouvahkelle Estate.
-#   terrain   : real SRTM elevation (30 m) interpolated to a 5 m grid
+#   terrain   : real SRTM elevation (3 arc-second tile, ~92.77 m cells) cubic-interpolated
+#               to a 5 m grid (interpolated, NOT new data)
 #   energy    : calibrated energy model (Kenilworth fit + SULEKO level scale)
 #   obstacles : random shade-tree canopies (circles)
 #   action    : continuous [vx, vy, vz] in [-1, 1]
-#   step      : 1 s of flight (10 internal 10 Hz energy updates)
+#   step      : 1 s of flight
 #
 # State vector (16 values, all scaled to 0..1)
 #   Energy / mass (6): battery, liquid, total mass, slope here,
@@ -23,9 +24,20 @@
 #               while it can still fly home with a safety reserve.
 #   r_crash   : crash penalty.
 #   obs_mode  : spec16 | ext24 | ext26 (ext24 + battery margin + distance home)
+#   use_mass  : False = ablation of the WORLD: the energy model treats the tank as
+#               always half full, so payload depletion has no physical effect.
+#   hide_mass : True  = ablation of the AGENT: the physics still uses the real tank
+#               level, but the observation no longer shows it. The liquid fraction,
+#               total mass and predicted drain rate (and, in ext26, the battery
+#               margin) are computed from a fixed half-full tank.
+#               Remaining indirect cues the agent can still use: the battery level,
+#               and in ext24/ext26 the coverage sectors (they fill up as it sprays,
+#               which tracks liquid used). So "hide_mass" means "mass inputs removed",
+#               not a perfectly mass-blind agent. Report it that way.
 #
 # Run self-check:  cd ~/component3 && source venv/bin/activate
 #                  python3 drl_agent/tea_spray_env.py
+# Leak check only: python3 drl_agent/tea_spray_env.py --check-blind
 
 import os, sys, glob, json
 import numpy as np
@@ -68,6 +80,7 @@ V_REF       = 6.4 / 3.6     # reference spraying speed (m/s)
 TRANSIT_V   = 7.0           # m/s base <-> field transit speed (assumption)
 BASE_D      = (100.0, 400.0)  # distance base -> field (m)
 RESERVE_BATT = 10.0         # battery % that must remain after flying home
+BLIND_LIQUID = LIQUID_L / 2  # tank level shown to a hide_mass agent (constant)
 
 
 def load_model():
@@ -93,7 +106,7 @@ class TeaSprayEnv(gym.Env):
     metadata = {"render_modes": []}
 
     def __init__(self, seed=None, terminate_on_collision=True, use_mass=True, obs_mode="spec16",
-                 v_max_kmh=6.4, transit=False, r_crash=R_CRASH):
+                 v_max_kmh=6.4, transit=False, r_crash=R_CRASH, hide_mass=False):
         super().__init__()
         self.v_max = v_max_kmh / 3.6
         self.transit = transit
@@ -102,7 +115,8 @@ class TeaSprayEnv(gym.Env):
         self.model = load_model()
         self.z_srtm, self.z_path = load_elevation()
         self.terminate_on_collision = terminate_on_collision
-        self.use_mass = use_mass      # False = ablation: energy model ignores m(t)
+        self.use_mass = use_mass        # False = world ablation: energy model ignores m(t)
+        self.hide_mass = hide_mass      # True  = agent ablation: observation hides m(t)
         self.action_space = spaces.Box(-1.0, 1.0, shape=(3,), dtype=np.float32)
         n_obs = {"spec16": 16, "ext24": 24, "ext26": 26}[obs_mode]
         self.observation_space = spaces.Box(0.0, 1.0, shape=(n_obs,), dtype=np.float32)
@@ -213,9 +227,12 @@ class TeaSprayEnv(gym.Env):
         return out
 
     # ---- energy -----------------------------------------------------------
-    def _drain_pct(self, speed, rise_rate, dt):
+    def _drain_pct(self, speed, rise_rate, dt, liquid=None):
+        """battery % used. `liquid` overrides the tank level (used only to build the
+        observation for a hide_mass agent); the physics always calls it without it."""
         ang = np.degrees(np.arctan2(max(rise_rate, 0.0), max(speed, 0.2)))
-        liquid = self.liquid if self.use_mass else LIQUID_L / 2
+        if liquid is None:
+            liquid = self.liquid if self.use_mass else LIQUID_L / 2
         return self.model.energy_cost(liquid, min(ang, 60.0), max(speed, 0.0), dt=dt)
 
     # ---- whole mission: base <-> field transit ----------------------------
@@ -246,13 +263,15 @@ class TeaSprayEnv(gym.Env):
         self.out_cost = self._leg_cost(LIQUID_L, self.home_ang, self.home_d, TRANSIT_V)
         self.battery -= self.out_cost
 
-    def _return_cost(self):
-        """battery % needed to fly home from here with the tank as it is now"""
+    def _return_cost(self, liquid=None):
+        """battery % needed to fly home from here with the tank as it is now
+        (`liquid` overrides the tank level, used only for a hide_mass observation)"""
         if not self.transit:
             return 0.0
+        liq = self.liquid if liquid is None else liquid
         d_in = float(np.hypot(self.x - 5.0, self.y - 5.0))
-        c_in = self._leg_cost(self.liquid, 0.0, d_in, TRANSIT_V) if d_in > 0.5 else 0.0   # not spraying on the way home
-        c_tr = self._leg_cost(self.liquid, -self.home_ang, self.home_d, TRANSIT_V)
+        c_in = self._leg_cost(liq, 0.0, d_in, TRANSIT_V) if d_in > 0.5 else 0.0   # not spraying on the way home
+        c_tr = self._leg_cost(liq, -self.home_ang, self.home_d, TRANSIT_V)
         return c_in + c_tr
 
     # ---- gym API ----------------------------------------------------------
@@ -277,12 +296,18 @@ class TeaSprayEnv(gym.Env):
         here  = self._slope_mag(self.x, self.y)
         ahead = self._slope_dir(self.x, self.y, ux, uy)
         rise  = max(0.0, np.tan(np.radians(ahead)) * self.v_max)
-        drain = self._drain_pct(self.v_max, rise, 60.0)                  # %/min estimate
-        m = self.model.current_mass(self.liquid)
+
+        # tank level the agent is allowed to see: the real one, or a constant if hidden
+        seen_liquid = BLIND_LIQUID if self.hide_mass else None
+        drain = self._drain_pct(self.v_max, rise, 60.0, liquid=seen_liquid)    # %/min estimate
+        liq_for_mass = BLIND_LIQUID if self.hide_mass else self.liquid
+        m = self.model.current_mass(liq_for_mass)
         m_max = self.model.current_mass(LIQUID_L)
+        liq_feat = liq_for_mass / LIQUID_L
+
         ndx, ndy = self._nearest_uncovered_dir()
         obs = np.concatenate([
-            [self.battery / 100.0, self.liquid / LIQUID_L, m / m_max,
+            [self.battery / 100.0, liq_feat, m / m_max,
              min(here, 45.0) / 45.0, (np.clip(ahead, -45, 45) + 45) / 90.0,
              min(drain, 30.0) / 30.0],
             self._sector_dists() / SENSE_M,
@@ -291,7 +316,7 @@ class TeaSprayEnv(gym.Env):
             obs = np.concatenate([obs, self._coverage_sectors()])
         if self.obs_mode == "ext26":
             floor = RESERVE_BATT if self.transit else RTH_BATT
-            margin = (self.battery - self._return_cost() - floor) / 100.0
+            margin = (self.battery - self._return_cost(liquid=seen_liquid) - floor) / 100.0
             dhome = np.hypot(self.x - 5.0, self.y - 5.0) / (PATCH_M * 1.42)
             obs = np.concatenate([obs, [np.clip(margin, 0, 1), np.clip(dhome, 0, 1)]])
         return np.clip(obs, 0, 1).astype(np.float32)
@@ -313,7 +338,7 @@ class TeaSprayEnv(gym.Env):
         dist = float(np.hypot(nx - x0, ny - y0))
         speed = dist                                      # 1 s step
         rise = (self._elev(nx, ny) + nh) - z0             # m per s
-        cost = self._drain_pct(speed, rise, 1.0)
+        cost = self._drain_pct(speed, rise, 1.0)          # physics: always the real tank
 
         # spray along the segment (start, middle, end)
         new_ha = 0.0
@@ -340,7 +365,7 @@ class TeaSprayEnv(gym.Env):
 
         terminated = (self.liquid <= 0.05) or (crashed and self.terminate_on_collision)
         if self.transit:
-            rc = self._return_cost()
+            rc = self._return_cost()                      # physics: always the real tank
             low = (self.battery - rc) <= RESERVE_BATT
         else:
             rc, low = 0.0, self.battery <= RTH_BATT
@@ -404,7 +429,28 @@ def evaluate_lawnmower(n=30):
     return res
 
 
+def check_blind(obs_mode="ext24"):
+    """Confirms hide_mass removes the direct mass inputs (first 6 features) from the
+    observation. Expect a clearly nonzero change for hide_mass=False and exactly 0.0
+    for hide_mass=True. Any other value means there is another leak."""
+    for hide in (False, True):
+        e = TeaSprayEnv(seed=0, hide_mass=hide, obs_mode=obs_mode)
+        e.reset(seed=0)
+        e.liquid = LIQUID_L
+        a = e._obs()
+        e.liquid = 0.1 * LIQUID_L
+        b = e._obs()
+        print(f"hide_mass={hide!s:5} | max change in first 6 features when the tank "
+              f"goes from 100% to 10%: {np.abs(a[:6] - b[:6]).max():.6f}")
+        if obs_mode == "ext26":
+            print(f"            | change in ext26 battery margin: {abs(a[24] - b[24]):.6f}")
+
+
 if __name__ == "__main__":
+    if "--check-blind" in sys.argv:
+        check_blind("ext24")
+        sys.exit(0)
+
     from gymnasium.utils.env_checker import check_env
     env = TeaSprayEnv(seed=0)
     check_env(env, skip_render_check=True)
@@ -428,3 +474,5 @@ if __name__ == "__main__":
           f"battery used {np.mean([r['battery_used'] for r in res]):.1f} %, "
           f"collisions/mission {np.mean([r['collisions'] for r in res]):.1f}")
     print("SULEKO T20P real    : coverage per charge 0.506 ha, battery used 78.4 %")
+    print()
+    check_blind("ext24")
