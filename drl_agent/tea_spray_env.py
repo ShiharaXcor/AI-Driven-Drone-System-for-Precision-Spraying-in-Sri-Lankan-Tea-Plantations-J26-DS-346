@@ -40,6 +40,8 @@ from energy_model import EnergyModel
 # ---- geometry -------------------------------------------------------------
 PATCH_M    = 200.0          # patch side length (m)
 TERRAIN_DX = 5.0            # terrain grid spacing (m)
+SRTM_DX    = 92.77          # ground size of one SRTM cell (m): srtm_53_11 is the 3 arc-second (90 m) tile,
+                            # 0.000833 deg x 111320 m/deg, the same value terrain_processor.py used for slope_grid_srtm.npy
 COV_DX     = 2.0            # coverage grid spacing (m)
 SWATH_M    = 6.0            # spray width (SULEKO: ~5.8 m of sprayed width)
 # ---- operating limits (the SAME for agent and baseline) -------------------
@@ -118,8 +120,7 @@ class TeaSprayEnv(gym.Env):
 
     # ---- terrain ----------------------------------------------------------
     def _make_patch(self):
-        k = int(round(30.0 / TERRAIN_DX))                 # 6x upsampling
-        w = int(np.ceil(PATCH_M / 30.0)) + 1              # 8 SRTM cells
+        w = int(np.ceil(PATCH_M / SRTM_DX)) + 1           # SRTM cells needed to cover the patch (4)
         R, C = self.z_srtm.shape
         for _ in range(50):
             r0 = self._rng.integers(0, max(1, R - w + 1))
@@ -130,8 +131,9 @@ class TeaSprayEnv(gym.Env):
         else:
             win = np.nan_to_num(win, nan=np.nanmean(self.z_srtm))
         self._rc = (r0, c0)                               # window origin in the SRTM grid
-        fine = zoom(win, k, order=3)                      # interpolated, NOT new data
-        self.z = fine[:self.n_t, :self.n_t]
+        pos = (np.arange(self.n_t) + 0.5) * TERRAIN_DX / SRTM_DX      # fine-grid centres in SRTM cell units
+        ii, jj = np.meshgrid(pos, pos, indexing="ij")
+        self.z = map_coordinates(win, [ii, jj], order=3, mode="nearest")   # interpolated, NOT new data
 
     def _elev(self, x, y):
         return map_coordinates(self.z, [[x / TERRAIN_DX - 0.5], [y / TERRAIN_DX - 0.5]],
@@ -234,8 +236,8 @@ class TeaSprayEnv(gym.Env):
         dz = 0.0
         for _ in range(40):                       # find a base location inside the SRTM tile
             th = self._rng.uniform(0, 2 * np.pi)
-            rr = r0 + self.home_d / 30.0 * np.sin(th)
-            cc = c0 + self.home_d / 30.0 * np.cos(th)
+            rr = r0 + self.home_d / SRTM_DX * np.sin(th)
+            cc = c0 + self.home_d / SRTM_DX * np.cos(th)
             if 0 <= rr <= R - 1 and 0 <= cc <= C - 1:
                 zb = map_coordinates(z, [[rr], [cc]], order=1)[0]
                 dz = float(z[min(r0, R - 1), min(c0, C - 1)] - zb)   # >0: field is uphill of base
