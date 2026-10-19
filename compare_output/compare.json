@@ -1,0 +1,68 @@
+{
+  "patches": 200,
+  "first_seed": 6000,
+  "results": {
+    "trees_8": {
+      "routes": {
+        "lawnmower": {
+          "ha_per_charge": 0.5224824862380043,
+          "area_ha": 0.38839999999999947,
+          "battery_used": 74.3474656873708,
+          "collisions": 0.595,
+          "crash_rate": 0.19
+        },
+        "lawnmower+detour": {
+          "ha_per_charge": 0.5196610820219583,
+          "area_ha": 0.38622999999999963,
+          "battery_used": 74.32929238372725,
+          "collisions": 0.005,
+          "crash_rate": 0.005
+        },
+        "ppo_ext24_1000k_s2": {
+          "ha_per_charge": 0.5552582186796743,
+          "area_ha": 0.4080160000000002,
+          "battery_used": 73.50704847169177,
+          "collisions": 0.025,
+          "crash_rate": 0.025
+        },
+        "ppo_ext24_crash100_1000k_s0": {
+          "ha_per_charge": 0.54100530873728,
+          "area_ha": 0.4014799999999992,
+          "battery_used": 74.21247800587469,
+          "collisions": 0.0,
+          "crash_rate": 0.0
+        }
+      },
+      "paired": {
+        "ppo_ext24_1000k_s2 vs lawnmower": {
+          "change_pct": 6.27307772125778,
+          "ci_low": 5.502049452934298,
+          "ci_high": 6.995491090872058,
+          "win_pct": 91.5,
+          "verdict": "better"
+        },
+        "ppo_ext24_1000k_s2 vs lawnmower+detour": {
+          "change_pct": 6.850067840218177,
+          "ci_low": 6.046162550137057,
+          "ci_high": 7.601184789402778,
+          "win_pct": 92.0,
+          "verdict": "better"
+        },
+        "ppo_ext24_crash100_1000k_s0 vs lawnmower": {
+          "change_pct": 3.545156629582813,
+          "ci_low": 3.4086493473810786,
+          "ci_high": 3.690491038409646,
+          "win_pct": 100.0,
+          "verdict": "better"
+        },
+        "ppo_ext24_crash100_1000k_s0 vs lawnmower+detour": {
+          "change_pct": 4.107336002971995,
+          "ci_low": 3.891901945506774,
+          "ci_high": 4.344088369010619,
+          "win_pct": 100.0,
+          "verdict": "better"
+        }
+      }
+    }
+  }
+}
