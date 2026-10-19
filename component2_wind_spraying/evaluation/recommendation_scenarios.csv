@@ -1,0 +1,12 @@
+scenario,wind,droplet,height,mode,drift_m,risk,shift_m,nozzle,path,droplet_advice,height_advice
+Calm morning,0.4,F-M,2.5,NO_CORRECTION,12.7,OK,0.0,0.0,0.0,,
+Light wind from right,1.5,F-M,2.5,CORRECT,20.0,OK,1.39,29.1 right,0.0,,
+Moderate wind from right,3.0,F-M,2.5,CORRECT,31.9,HIGH,2.78,30.0 right,1.33 right,C-VC,
+Moderate wind from left,3.0,F-M,2.5,CORRECT,31.9,HIGH,2.78,30.0 left,1.33 left,C-VC,
+Wind along flight line,3.0,F-M,2.5,NO_CORRECTION,12.9,OK,0.0,0.0,0.0,,
+Wind at 45 deg,3.0,F-M,2.5,CORRECT,26.0,HIGH,1.96,30.0 right,0.52 right,M-C,
+"Moderate wind, flying high",3.0,F-M,3.4,CORRECT,35.5,HIGH,3.78,30.0 right,1.81 right,,2.5
+"Moderate wind, very fine",3.0,VF-F,2.5,CORRECT,51.9,HIGH,3.26,30.0 right,1.82 right,C-VC,
+"Moderate wind, coarse",3.0,C-VC,2.5,CORRECT,18.3,OK,1.97,30.0 right,0.53 right,,
+"Windy, hot and dry",4.3,F-M,2.5,CORRECT,38.4,HIGH,3.98,30.0 right,2.54 right,,
+Strong wind,5.5,F-M,2.5,STRONG_WIND,,,0.0,0.0,0.0,,
