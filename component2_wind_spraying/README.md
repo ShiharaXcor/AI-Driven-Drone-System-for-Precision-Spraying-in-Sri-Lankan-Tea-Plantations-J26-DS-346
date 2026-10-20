@@ -13,16 +13,24 @@ weather (2023–2025) from four Sri Lankan tea regions.
 Most important inputs: droplet class > crosswind > flight height.
 
 ## Folder structure
+
 | Folder / file | Contents |
 |---|---|
-| `data/` | AgDRIFT dataset (agdrift_dataset_v3_final.csv) |
+| `data/` | AgDRIFT dataset (`agdrift_dataset_v3_final.csv`) |
+| `data_scripts/` | Scripts used to build the data (e.g. `get_suleco_weather.py` – Open-Meteo weather download) |
 | `eda/` | Exploratory data analysis notebook and figures |
 | `drift_model/model_experiments.ipynb` | Model comparison, tuning and evaluation |
 | `drift_model/features.py` | Input preparation (shared by training and prediction) |
 | `drift_model/train.py` | Retrains the final model |
-| `drift_model/predict.py` | `predict_drift()` – used by other components |
+| `drift_model/predict.py` | `predict_drift()` – predicted drift distance (m) |
+| `drift_model/recommend.py` | `recommend()` – nozzle tilt, left/right path offset, droplet/height advice, strong-wind flag |
+| `drift_model/demo_recommend.py` | Runs 11 test scenarios through `recommend()` |
 | `drift_model/saved/drift_xgb.json` | Trained model |
-| `tests/` | Automatic tests |
+| `validation/suleco_validation.ipynb` | Dataset B: check against 564 real Suleco flights (coverage, predicted drift, literature check) |
+| `validation/data/` | Raw Suleco flight records + weather – **not in Git** (company data) |
+| `evaluation/recommendation_scenarios.csv` | Output of the scenario table |
+| `app/app.py` | Standalone Streamlit demo page |
+| `tests/` | Automatic tests (`test_predict.py`, `test_recommend.py`) |
 
 ## How to run (from the repo root, venv active)
 ```bash
