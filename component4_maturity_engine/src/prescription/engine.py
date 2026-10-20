@@ -35,6 +35,7 @@ class SprayConfig:
     confidence_threshold: float = 0.60
     low_confidence_level: str = "normal"
     baseline_fixed_level: str = "normal"
+    normal_flow_l_min: float = 1.6   # nozzle flow at "normal"; placeholder, set by C2/estate
 
     def __post_init__(self):
         for m, lvl in self.mapping.items():
@@ -48,6 +49,22 @@ class SprayConfig:
             raise ValueError(f"rate_multiplier is missing levels: {missing}")
         if not 0 <= self.confidence_threshold <= 1:
             raise ValueError("confidence_threshold must be between 0 and 1")
+        if any(float(v) < 0 for v in self.rate_multiplier.values()) or self.normal_flow_l_min < 0:
+            raise ValueError("rates and flow must not be negative")
+
+    def to_dict(self) -> dict:
+        return {"mapping": dict(self.mapping), "rate_multiplier": dict(self.rate_multiplier),
+                "confidence_threshold": self.confidence_threshold,
+                "low_confidence_level": self.low_confidence_level,
+                "baseline_fixed_level": self.baseline_fixed_level,
+                "normal_flow_l_min": self.normal_flow_l_min}
+
+    def to_yaml(self, path=DEFAULT_CONFIG) -> None:
+        header = ("# Component 4 - maturity-to-spray decision rules.\n"
+                  "# Edited from the dashboard Settings page or by hand.\n"
+                  "# rate_multiplier and normal_flow_l_min are PLACEHOLDERS until validated with TRI.\n")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(header + yaml.safe_dump(self.to_dict(), sort_keys=False))
 
     @classmethod
     def from_yaml(cls, path=DEFAULT_CONFIG) -> "SprayConfig":
@@ -66,7 +83,9 @@ def decide(maturity: str, confidence: float, cfg: SprayConfig) -> dict:
         review = True
     else:
         level, reason, review = cfg.mapping[maturity], f"{maturity} -> {cfg.mapping[maturity]}", False
-    return {"spray_level": level, "rate_multiplier": cfg.rate_multiplier[level],
+    rate = cfg.rate_multiplier[level]
+    return {"spray_level": level, "rate_multiplier": rate,
+            "flow_l_min": round(rate * cfg.normal_flow_l_min, 2),
             "needs_review": review, "reason": reason}
 
 
@@ -105,9 +124,9 @@ def save_prescription(prescription: dict, out_path: Path) -> None:
     if out_path.suffix == ".csv":
         import csv
         cols = ["region_id", "image", "lat", "lon", "maturity", "confidence",
-                "spray_level", "rate_multiplier", "needs_review", "reason"]
+                "spray_level", "rate_multiplier", "flow_l_min", "needs_review", "reason"]
         with open(out_path, "w", newline="", encoding="utf-8") as f:
-            w = csv.DictWriter(f, fieldnames=cols)
+            w = csv.DictWriter(f, fieldnames=cols, extrasaction="ignore")
             w.writeheader()
             w.writerows(prescription["regions"])
     else:
