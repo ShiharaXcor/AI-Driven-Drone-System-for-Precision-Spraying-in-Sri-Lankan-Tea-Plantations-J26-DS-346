@@ -11,3 +11,7 @@ seaborn
 pyyaml
 streamlit
 pytest
+fastapi
+uvicorn[standard]
+python-multipart
+httpx
