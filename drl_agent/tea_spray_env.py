@@ -23,6 +23,8 @@
 #               return leg (current tank) is reserved, so the drone must stop spraying
 #               while it can still fly home with a safety reserve.
 #   r_crash   : crash penalty.
+#   dose cap  : (always on) over the flight, new ground is credited at most SWATH_M x distance flown, i.e. the real
+#               spray dose of ~51 L/ha. Models trained before this cap exploited weaving paths.
 #   obs_mode  : spec16 | ext24 | ext26 (ext24 + battery margin + distance home)
 #   use_mass  : False = ablation of the WORLD: the energy model treats the tank as
 #               always half full, so payload depletion has no physical effect.
@@ -284,6 +286,7 @@ class TeaSprayEnv(gym.Env):
         self.vx = self.vy = 0.0
         self.liquid, self.battery = LIQUID_L, 100.0
         self.t, self.area_ha, self.path_m, self.collisions = 0, 0.0, 0.0, 0
+        self._allow = 0.0                 # dose allowance: ha that the litres sprayed so far can really cover
         self._setup_transit()
         return self._obs(), {}
 
@@ -346,6 +349,12 @@ class TeaSprayEnv(gym.Env):
             for f in (0.0, 0.5, 1.0):
                 new_ha += self._spray_at(x0 + f * (nx - x0), y0 + f * (ny - y0))
             self.liquid = max(0.0, self.liquid - L_PER_M * dist)
+            # DOSE CAP: litres per metre is fixed, so over the whole flight new ground may be credited at no
+            # more than SWATH_M x distance flown (51 L/ha). Slack carries over, so turns and row shifts are not
+            # punished, but a weaving path cannot earn extra area per litre. Without this, agents were rewarded for
+            # under-dosing (diag_efficiency.py: effective swath 6.3-6.5 m against a 6.0 m limit).
+            self._allow += SWATH_M * dist / 10000.0
+            new_ha = min(new_ha, max(0.0, self._allow - self.area_ha))
         self.x, self.y, self.h = nx, ny, nh
         self.battery -= cost
         self.area_ha += new_ha
