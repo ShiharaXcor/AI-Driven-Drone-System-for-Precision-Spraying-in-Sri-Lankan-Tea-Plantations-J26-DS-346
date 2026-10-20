@@ -28,3 +28,9 @@ drl_agent/models_old_30m/
 *.log
 demo_output/
 data/region_*.png
+drl_agent/models_before_dosefix/
+planner_output/
+viewer/demo.html
+data/synthetic_flights.csv
+c3app/cache/
+__pycache__/
