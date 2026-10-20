@@ -59,6 +59,16 @@ def load_agent(name):
     return m, mode
 
 
+def ep(env, fn, seed):
+    """one episode + dose-corrected coverage: new ground is credited at most SWATH x path length,
+    i.e. never at less than the real dose (litres per metre is fixed, so a wiggly path cannot get extra credit)"""
+    info = dict(run_episode(env, fn, seed))
+    info["path_m"] = float(env.path_m)
+    info["area_dc"] = min(info["area_ha"], E.SWATH_M * env.path_m / 1e4)
+    info["cpc_dc"] = info["area_dc"] * 100.0 / max(info["battery_used"], 1e-6)
+    return info
+
+
 def run_all(seeds, agent_names):
     out = {}
     pol = LawnmowerPolicy()
@@ -66,17 +76,20 @@ def run_all(seeds, agent_names):
     out["lawnmower"] = []
     for s in seeds:
         pol.reset()
-        out["lawnmower"].append(run_episode(env_plain, lambda o: pol.act(env_plain), s))
+        out["lawnmower"].append(ep(env_plain, lambda o: pol.act(env_plain), s))
     dpol = DetourLawnmower()
     env_det = TeaSprayEnv(terminate_on_collision=True)
     out["lawnmower+detour"] = []
     for s in seeds:
         dpol.reset()
-        out["lawnmower+detour"].append(run_episode(env_det, lambda o: dpol.act(env_det), s))
+        out["lawnmower+detour"].append(ep(env_det, lambda o: dpol.act(env_det), s))
     for nm in agent_names:
         model, mode = load_agent(nm)
-        env = TeaSprayEnv(terminate_on_collision=True, obs_mode=mode)
-        out[nm] = [run_episode(env, lambda o: model.predict(o, deterministic=True)[0], s) for s in seeds]
+        kw = dict(hide_mass=True) if "blind" in nm else {}      # blind models were trained with the mass hidden
+        if "nomass" in nm:
+            raise SystemExit(f"{nm}: trained in a different world (energy ignores mass) - not comparable here")
+        env = TeaSprayEnv(terminate_on_collision=True, obs_mode=mode, **kw)
+        out[nm] = [ep(env, lambda o: model.predict(o, deterministic=True)[0], s) for s in seeds]
     return out
 
 
@@ -121,6 +134,18 @@ def main():
                 verdict = "better" if lo > 0 else ("worse" if hi < 0 else "no clear difference")
                 print(f"  {nm:30s} vs {base:17s}: {g:+6.1f}%  [{lo:+5.1f}, {hi:+5.1f}]  wins {win:3.0f}%  -> {verdict}")
                 rows[f"{nm} vs {base}"] = dict(change_pct=g, ci_low=lo, ci_high=hi, win_pct=win, verdict=verdict)
+        cdc = {k: col(v, "cpc_dc") for k, v in res.items()}
+        print("\nDOSE-CORRECTED (new ground credited at most 6 m x path length = the real spray dose; the number to quote)")
+        print(f"{'route':34s} {'eff.swath m':>11s} {'ha/charge':>9s}")
+        for k, v in res.items():
+            print(f"{k:34s} {np.mean(col(v, 'area_ha') * 1e4 / col(v, 'path_m')):11.2f} {cdc[k].mean():9.3f}")
+        for nm in a.models:
+            for base in ("lawnmower", "lawnmower+detour"):
+                g = (cdc[nm].mean() / cdc[base].mean() - 1) * 100
+                lo, hi = boot_ci(cdc[nm], cdc[base])
+                verdict = "better" if lo > 0 else ("worse" if hi < 0 else "no clear difference")
+                print(f"  {nm:30s} vs {base:17s}: {g:+6.1f}%  [{lo:+5.1f}, {hi:+5.1f}]  -> {verdict}")
+                rows[f"DOSE-CORRECTED {nm} vs {base}"] = dict(change_pct=g, ci_low=lo, ci_high=hi, verdict=verdict)
         summary[f"trees_{nt}"] = dict(
             routes={k: dict(ha_per_charge=float(cpc[k].mean()), area_ha=float(col(v, "area_ha").mean()),
                             battery_used=float(col(v, "battery_used").mean()),

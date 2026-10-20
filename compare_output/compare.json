@@ -1,66 +1,361 @@
 {
-  "patches": 200,
+  "patches": 100,
   "first_seed": 6000,
   "results": {
-    "trees_8": {
+    "trees_4": {
       "routes": {
         "lawnmower": {
-          "ha_per_charge": 0.5224824862380043,
-          "area_ha": 0.38839999999999947,
-          "battery_used": 74.3474656873708,
-          "collisions": 0.595,
-          "crash_rate": 0.19
+          "ha_per_charge": 0.5176887037922209,
+          "area_ha": 0.3848764038955118,
+          "battery_used": 74.35529617455367,
+          "collisions": 0.24,
+          "crash_rate": 0.07
         },
         "lawnmower+detour": {
-          "ha_per_charge": 0.5196610820219583,
-          "area_ha": 0.38622999999999963,
-          "battery_used": 74.32929238372725,
-          "collisions": 0.005,
-          "crash_rate": 0.005
+          "ha_per_charge": 0.5164697209244542,
+          "area_ha": 0.3837844038955119,
+          "battery_used": 74.31711129848091,
+          "collisions": 0.01,
+          "crash_rate": 0.01
+        },
+        "ppo_ext24_1000k_s0": {
+          "ha_per_charge": 0.5234337722983866,
+          "area_ha": 0.3856659629128674,
+          "battery_used": 73.66463747792602,
+          "collisions": 0.05,
+          "crash_rate": 0.05
+        },
+        "ppo_ext24_1000k_s1": {
+          "ha_per_charge": 0.5129644368496519,
+          "area_ha": 0.3803247675381196,
+          "battery_used": 74.05651699944742,
+          "collisions": 0.01,
+          "crash_rate": 0.01
         },
         "ppo_ext24_1000k_s2": {
-          "ha_per_charge": 0.5552582186796743,
-          "area_ha": 0.4080160000000002,
-          "battery_used": 73.50704847169177,
-          "collisions": 0.025,
-          "crash_rate": 0.025
-        },
-        "ppo_ext24_crash100_1000k_s0": {
-          "ha_per_charge": 0.54100530873728,
-          "area_ha": 0.4014799999999992,
-          "battery_used": 74.21247800587469,
+          "ha_per_charge": 0.5169195647273724,
+          "area_ha": 0.38253993039959494,
+          "battery_used": 74.00948131365304,
           "collisions": 0.0,
           "crash_rate": 0.0
         }
       },
       "paired": {
-        "ppo_ext24_1000k_s2 vs lawnmower": {
-          "change_pct": 6.27307772125778,
-          "ci_low": 5.502049452934298,
-          "ci_high": 6.995491090872058,
-          "win_pct": 91.5,
+        "ppo_ext24_1000k_s0 vs lawnmower": {
+          "change_pct": 1.1097534993677494,
+          "ci_low": 0.6464646178021344,
+          "ci_high": 1.4998344404010056,
+          "win_pct": 83.0,
           "verdict": "better"
+        },
+        "ppo_ext24_1000k_s0 vs lawnmower+detour": {
+          "change_pct": 1.3483948994080563,
+          "ci_low": 0.8780765022585973,
+          "ci_high": 1.7685110808156725,
+          "win_pct": 85.0,
+          "verdict": "better"
+        },
+        "ppo_ext24_1000k_s1 vs lawnmower": {
+          "change_pct": -0.9125690608974835,
+          "ci_low": -1.5800338284933022,
+          "ci_high": -0.39059120233801825,
+          "win_pct": 44.0,
+          "verdict": "worse"
+        },
+        "ppo_ext24_1000k_s1 vs lawnmower+detour": {
+          "change_pct": -0.6787007897632535,
+          "ci_low": -1.3554804529608235,
+          "ci_high": -0.13638743910284074,
+          "win_pct": 48.0,
+          "verdict": "worse"
+        },
+        "ppo_ext24_1000k_s2 vs lawnmower": {
+          "change_pct": -0.1485717303109535,
+          "ci_low": -0.40138380508165594,
+          "ci_high": 0.09792417973956245,
+          "win_pct": 46.0,
+          "verdict": "no clear difference"
         },
         "ppo_ext24_1000k_s2 vs lawnmower+detour": {
-          "change_pct": 6.850067840218177,
-          "ci_low": 6.046162550137057,
-          "ci_high": 7.601184789402778,
-          "win_pct": 92.0,
+          "change_pct": 0.0870997436428711,
+          "ci_low": -0.19960528836518637,
+          "ci_high": 0.38042016136472656,
+          "win_pct": 48.0,
+          "verdict": "no clear difference"
+        },
+        "DOSE-CORRECTED ppo_ext24_1000k_s0 vs lawnmower": {
+          "change_pct": 1.1097534993677494,
+          "ci_low": 0.6464646178021338,
+          "ci_high": 1.4998344404010056,
           "verdict": "better"
         },
-        "ppo_ext24_crash100_1000k_s0 vs lawnmower": {
-          "change_pct": 3.545156629582813,
-          "ci_low": 3.4086493473810786,
-          "ci_high": 3.690491038409646,
-          "win_pct": 100.0,
+        "DOSE-CORRECTED ppo_ext24_1000k_s0 vs lawnmower+detour": {
+          "change_pct": 1.3483948994080563,
+          "ci_low": 0.8780765022585973,
+          "ci_high": 1.7685110808156725,
           "verdict": "better"
         },
-        "ppo_ext24_crash100_1000k_s0 vs lawnmower+detour": {
-          "change_pct": 4.107336002971995,
-          "ci_low": 3.891901945506774,
-          "ci_high": 4.344088369010619,
-          "win_pct": 100.0,
+        "DOSE-CORRECTED ppo_ext24_1000k_s1 vs lawnmower": {
+          "change_pct": -0.9125690608974835,
+          "ci_low": -1.5800338284933022,
+          "ci_high": -0.39059120233801825,
+          "verdict": "worse"
+        },
+        "DOSE-CORRECTED ppo_ext24_1000k_s1 vs lawnmower+detour": {
+          "change_pct": -0.6787007897632535,
+          "ci_low": -1.3554804529608235,
+          "ci_high": -0.13638743910284074,
+          "verdict": "worse"
+        },
+        "DOSE-CORRECTED ppo_ext24_1000k_s2 vs lawnmower": {
+          "change_pct": -0.1485717303109535,
+          "ci_low": -0.40138380508165594,
+          "ci_high": 0.09792417973956245,
+          "verdict": "no clear difference"
+        },
+        "DOSE-CORRECTED ppo_ext24_1000k_s2 vs lawnmower+detour": {
+          "change_pct": 0.0870997436428711,
+          "ci_low": -0.19960528836518637,
+          "ci_high": 0.3804201613647049,
+          "verdict": "no clear difference"
+        }
+      }
+    },
+    "trees_8": {
+      "routes": {
+        "lawnmower": {
+          "ha_per_charge": 0.5176887037922209,
+          "area_ha": 0.3848764038955118,
+          "battery_used": 74.35529617455367,
+          "collisions": 0.59,
+          "crash_rate": 0.19
+        },
+        "lawnmower+detour": {
+          "ha_per_charge": 0.5150560593010443,
+          "area_ha": 0.38306040389551194,
+          "battery_used": 74.38498973514582,
+          "collisions": 0.0,
+          "crash_rate": 0.0
+        },
+        "ppo_ext24_1000k_s0": {
+          "ha_per_charge": 0.5221268659095101,
+          "area_ha": 0.384852964308801,
+          "battery_used": 73.69210479454495,
+          "collisions": 0.08,
+          "crash_rate": 0.08
+        },
+        "ppo_ext24_1000k_s1": {
+          "ha_per_charge": 0.5129694219623696,
+          "area_ha": 0.3816750986741,
+          "battery_used": 74.38306365342822,
+          "collisions": 0.03,
+          "crash_rate": 0.03
+        },
+        "ppo_ext24_1000k_s2": {
+          "ha_per_charge": 0.5066934368348541,
+          "area_ha": 0.3750602961262265,
+          "battery_used": 74.02051017529405,
+          "collisions": 0.03,
+          "crash_rate": 0.03
+        }
+      },
+      "paired": {
+        "ppo_ext24_1000k_s0 vs lawnmower": {
+          "change_pct": 0.8573032567213312,
+          "ci_low": 0.36249710732015605,
+          "ci_high": 1.2958449228121554,
+          "win_pct": 77.0,
           "verdict": "better"
+        },
+        "ppo_ext24_1000k_s0 vs lawnmower+detour": {
+          "change_pct": 1.3728227210958899,
+          "ci_low": 0.8778750849611877,
+          "ci_high": 1.8480663242152384,
+          "win_pct": 78.0,
+          "verdict": "better"
+        },
+        "ppo_ext24_1000k_s1 vs lawnmower": {
+          "change_pct": -0.9116061052291013,
+          "ci_low": -1.4344603679626458,
+          "ci_high": -0.4069189007412467,
+          "win_pct": 35.0,
+          "verdict": "worse"
+        },
+        "ppo_ext24_1000k_s1 vs lawnmower+detour": {
+          "change_pct": -0.40512819934713784,
+          "ci_low": -0.9589984352480981,
+          "ci_high": 0.14750262693758726,
+          "win_pct": 46.0,
+          "verdict": "no clear difference"
+        },
+        "ppo_ext24_1000k_s2 vs lawnmower": {
+          "change_pct": -2.123914792195236,
+          "ci_low": -3.317827423738978,
+          "ci_high": -1.1026083573197594,
+          "win_pct": 39.0,
+          "verdict": "worse"
+        },
+        "ppo_ext24_1000k_s2 vs lawnmower+detour": {
+          "change_pct": -1.62363345021872,
+          "ci_low": -2.8437391652456836,
+          "ci_high": -0.5875886319118689,
+          "win_pct": 47.0,
+          "verdict": "worse"
+        },
+        "DOSE-CORRECTED ppo_ext24_1000k_s0 vs lawnmower": {
+          "change_pct": 0.8573032567213312,
+          "ci_low": 0.3624971073201344,
+          "ci_high": 1.2958449228121554,
+          "verdict": "better"
+        },
+        "DOSE-CORRECTED ppo_ext24_1000k_s0 vs lawnmower+detour": {
+          "change_pct": 1.3728227210958899,
+          "ci_low": 0.8778750849611877,
+          "ci_high": 1.8480663242152384,
+          "verdict": "better"
+        },
+        "DOSE-CORRECTED ppo_ext24_1000k_s1 vs lawnmower": {
+          "change_pct": -0.9116061052291013,
+          "ci_low": -1.4344603679626458,
+          "ci_high": -0.4069189007412467,
+          "verdict": "worse"
+        },
+        "DOSE-CORRECTED ppo_ext24_1000k_s1 vs lawnmower+detour": {
+          "change_pct": -0.40512819934713784,
+          "ci_low": -0.9589984352480981,
+          "ci_high": 0.14750262693758726,
+          "verdict": "no clear difference"
+        },
+        "DOSE-CORRECTED ppo_ext24_1000k_s2 vs lawnmower": {
+          "change_pct": -2.123914792195236,
+          "ci_low": -3.317827423738978,
+          "ci_high": -1.1026083573197811,
+          "verdict": "worse"
+        },
+        "DOSE-CORRECTED ppo_ext24_1000k_s2 vs lawnmower+detour": {
+          "change_pct": -1.62363345021872,
+          "ci_low": -2.8437391652456836,
+          "ci_high": -0.5875886319118695,
+          "verdict": "worse"
+        }
+      }
+    },
+    "trees_16": {
+      "routes": {
+        "lawnmower": {
+          "ha_per_charge": 0.5176887037922209,
+          "area_ha": 0.3848764038955118,
+          "battery_used": 74.35529617455367,
+          "collisions": 1.12,
+          "crash_rate": 0.32
+        },
+        "lawnmower+detour": {
+          "ha_per_charge": 0.5122791826129294,
+          "area_ha": 0.381128403895512,
+          "battery_used": 74.41203439088287,
+          "collisions": 0.01,
+          "crash_rate": 0.01
+        },
+        "ppo_ext24_1000k_s0": {
+          "ha_per_charge": 0.5190742796646525,
+          "area_ha": 0.38105389615615437,
+          "battery_used": 73.36797533417304,
+          "collisions": 0.09,
+          "crash_rate": 0.09
+        },
+        "ppo_ext24_1000k_s1": {
+          "ha_per_charge": 0.5029502772757636,
+          "area_ha": 0.3701231791147416,
+          "battery_used": 73.31989536699164,
+          "collisions": 0.06,
+          "crash_rate": 0.06
+        },
+        "ppo_ext24_1000k_s2": {
+          "ha_per_charge": 0.4941757931243175,
+          "area_ha": 0.36461422334920707,
+          "battery_used": 73.66101351113045,
+          "collisions": 0.05,
+          "crash_rate": 0.05
+        }
+      },
+      "paired": {
+        "ppo_ext24_1000k_s0 vs lawnmower": {
+          "change_pct": 0.26764653396564864,
+          "ci_low": -0.33249115343622876,
+          "ci_high": 0.8152756748304117,
+          "win_pct": 70.0,
+          "verdict": "no clear difference"
+        },
+        "ppo_ext24_1000k_s0 vs lawnmower+detour": {
+          "change_pct": 1.326444111405034,
+          "ci_low": 0.6396544464307208,
+          "ci_high": 1.9279125984646837,
+          "win_pct": 77.0,
+          "verdict": "better"
+        },
+        "ppo_ext24_1000k_s1 vs lawnmower": {
+          "change_pct": -2.8469669916484586,
+          "ci_low": -3.9273337360408984,
+          "ci_high": -1.862094674673316,
+          "win_pct": 28.000000000000004,
+          "verdict": "worse"
+        },
+        "ppo_ext24_1000k_s1 vs lawnmower+detour": {
+          "change_pct": -1.8210588393584137,
+          "ci_low": -3.0014071616805356,
+          "ci_high": -0.7801471134899394,
+          "win_pct": 45.0,
+          "verdict": "worse"
+        },
+        "ppo_ext24_1000k_s2 vs lawnmower": {
+          "change_pct": -4.541901435295859,
+          "ci_low": -6.432749418389712,
+          "ci_high": -2.9046220985026485,
+          "win_pct": 27.0,
+          "verdict": "worse"
+        },
+        "ppo_ext24_1000k_s2 vs lawnmower+detour": {
+          "change_pct": -3.533891304400427,
+          "ci_low": -5.515839260783482,
+          "ci_high": -1.834845899610864,
+          "win_pct": 43.0,
+          "verdict": "worse"
+        },
+        "DOSE-CORRECTED ppo_ext24_1000k_s0 vs lawnmower": {
+          "change_pct": 0.26764653396564864,
+          "ci_low": -0.33249115343622876,
+          "ci_high": 0.8152756748304117,
+          "verdict": "no clear difference"
+        },
+        "DOSE-CORRECTED ppo_ext24_1000k_s0 vs lawnmower+detour": {
+          "change_pct": 1.326444111405034,
+          "ci_low": 0.6396544464307208,
+          "ci_high": 1.9279125984646837,
+          "verdict": "better"
+        },
+        "DOSE-CORRECTED ppo_ext24_1000k_s1 vs lawnmower": {
+          "change_pct": -2.8469669916484586,
+          "ci_low": -3.9273337360408984,
+          "ci_high": -1.862094674673316,
+          "verdict": "worse"
+        },
+        "DOSE-CORRECTED ppo_ext24_1000k_s1 vs lawnmower+detour": {
+          "change_pct": -1.8210588393584137,
+          "ci_low": -3.0014071616805356,
+          "ci_high": -0.7801471134899394,
+          "verdict": "worse"
+        },
+        "DOSE-CORRECTED ppo_ext24_1000k_s2 vs lawnmower": {
+          "change_pct": -4.541901435295859,
+          "ci_low": -6.432749418389712,
+          "ci_high": -2.9046220985026485,
+          "verdict": "worse"
+        },
+        "DOSE-CORRECTED ppo_ext24_1000k_s2 vs lawnmower+detour": {
+          "change_pct": -3.533891304400427,
+          "ci_low": -5.515839260783482,
+          "ci_high": -1.834845899610864,
+          "verdict": "worse"
         }
       }
     }
