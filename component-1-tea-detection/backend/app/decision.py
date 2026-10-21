@@ -50,3 +50,5 @@ def decide(dets, cfg=CFG, geofence_ok=True, image_ok=True):
     if tea >= cfg["tea_uncertain"]:
         return "UNCERTAIN", f"Tea confidence low ({tea:.2f})"
     return "NO_SPRAY", "No tea detected"
+
+DEFAULT_CFG = dict(CFG)     # factory thresholds, used by the spray tests and "reset"

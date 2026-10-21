@@ -68,7 +68,12 @@ class GpsLog(Base):
     ts = Column(DateTime, default=now)
     lat = Column(Float); lon = Column(Float); alt = Column(Float)
     sats = Column(Integer); hdop = Column(Float); source = Column(String(12))
-
+    
+class Setting(Base):
+    __tablename__ = "settings"
+    key = Column(String(50), primary_key=True)
+    value = Column(Float)
+    updated_at = Column(DateTime, default=now, onupdate=now)
 
 Base.metadata.create_all(engine)
 

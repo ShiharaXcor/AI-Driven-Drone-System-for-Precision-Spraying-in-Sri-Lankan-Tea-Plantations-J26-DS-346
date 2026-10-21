@@ -1,7 +1,8 @@
 import time
 from .db import Session, SprayTest
-from .decision import decide, Det
+from .decision import decide, Det, DEFAULT_CFG
 from .services import STATE, relay, resolve_control
+
 
 ANOMALY_CLASSES = ["road", "rock", "bare_soil", "building", "water", "non_tea_vegetation"]
 TEA = ("tea_plant", 0.90)
@@ -76,8 +77,8 @@ def run_all(reset=True):
             dets = [Det(c, v) for c, v in sc["dets"]]
 
             t0 = time.perf_counter()
-            decision, reason = decide(dets, geofence_ok=sc.get("geofence_ok", True),
-                                      image_ok=sc.get("image_ok", True))
+            decision, reason = decide(dets, cfg=DEFAULT_CFG, geofence_ok=sc.get("geofence_ok", True),
+                    image_ok=sc.get("image_ok", True))
             _, _, status = resolve_control(decision, reason)
             relay.set(status == "ON")
             ms = (time.perf_counter() - t0) * 1000
