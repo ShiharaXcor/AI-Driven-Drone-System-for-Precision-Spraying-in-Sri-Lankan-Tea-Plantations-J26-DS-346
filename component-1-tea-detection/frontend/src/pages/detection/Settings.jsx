@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTheme } from "../../context/ThemeContext";
+import { api } from "../../api";
 
 const CATEGORIES = [
   { id: "model", label: "Model Settings" },
@@ -66,7 +67,7 @@ function SavedBadge({ show }) {
   return <span className="text-[10px] text-emerald-500 font-semibold ml-2">✓ Saved</span>;
 }
 
-function ThresholdSlider({ label, value, onChange, onSave, saved, accentText, textMuted, textPrimary, accentBg, accentTextOn }) {
+function ThresholdSlider({ label, value, onChange, onSave, saved, error, max = 1, accentText, textMuted, textPrimary, accentBg, accentTextOn }) {
   return (
     <div>
       <div className="flex items-center justify-between mb-1">
@@ -77,7 +78,7 @@ function ThresholdSlider({ label, value, onChange, onSave, saved, accentText, te
         <input
           type="range"
           min="0"
-          max="1"
+          max={max}
           step="0.01"
           value={value}
           onChange={(e) => onChange(parseFloat(e.target.value))}
@@ -91,15 +92,47 @@ function ThresholdSlider({ label, value, onChange, onSave, saved, accentText, te
         </button>
       </div>
       <SavedBadge show={saved} />
+      {error && <p className="text-[10px] text-red-500 mt-1">{error}</p>}
     </div>
   );
 }
 
 /* ---------- Section 1: Model Settings ---------- */
 
+// UI slider name -> backend setting name
+const KEYMAP = { tea: "tea_spray", person: "person_stop", animal: "animal_stop", anomaly: "anomaly_stop" };
+// The backend refuses person/animal stop thresholds above 0.5 (safety limit)
+const SLIDER_MAX = { person: 0.5, animal: 0.5 };
+
 function ModelSettings({ cardBg, border, textMuted, textPrimary, inner, accentBg, accentTextOn, accentText, flashSaved, savedFlash }) {
-  const [thresholds, setThresholds] = useState({ tea: 0.6, person: 0.5, animal: 0.5, anomaly: 0.6 });
+  const [thresholds, setThresholds] = useState({ tea: 0.7, person: 0.3, animal: 0.3, anomaly: 0.6 });
   const [shadowAware, setShadowAware] = useState(true);
+  const [errors, setErrors] = useState({});
+  const [models, setModels] = useState(null);
+
+  useEffect(() => {
+    api.settings()
+      .then(({ current }) =>
+        setThresholds({
+          tea: current.tea_spray,
+          person: current.person_stop,
+          animal: current.animal_stop,
+          anomaly: current.anomaly_stop,
+        })
+      )
+      .catch(() => {});
+    api.models().then(setModels).catch(() => {});
+  }, []);
+
+  async function save(key) {
+    try {
+      await api.saveSettings({ [KEYMAP[key]]: thresholds[key] });
+      setErrors((prev) => ({ ...prev, [key]: "" }));
+      flashSaved(key);
+    } catch (e) {
+      setErrors((prev) => ({ ...prev, [key]: e.message }));
+    }
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -117,8 +150,10 @@ function ModelSettings({ cardBg, border, textMuted, textPrimary, inner, accentBg
               label={label}
               value={thresholds[key]}
               onChange={(v) => setThresholds((prev) => ({ ...prev, [key]: v }))}
-              onSave={() => flashSaved(key)}
+              onSave={() => save(key)}
               saved={savedFlash === key}
+              error={errors[key]}
+              max={SLIDER_MAX[key] ?? 1}
               accentText={accentText}
               textMuted={textMuted}
               textPrimary={textPrimary}
@@ -152,11 +187,11 @@ function ModelSettings({ cardBg, border, textMuted, textPrimary, inner, accentBg
         <div className="grid grid-cols-2 gap-3">
           <div className={`${inner} rounded-lg p-2.5`}>
             <p className={`text-[10px] ${textMuted}`}>Model checkpoint</p>
-            <p className={`text-xs font-semibold ${textPrimary}`}>yolo-tea-v3.pt</p>
+            <p className={`text-xs font-semibold ${textPrimary}`}>{models ? (models.main_model.exists ? "best.pt (trained)" : "DEMO: no trained weights") : "-"}</p>
           </div>
           <div className={`${inner} rounded-lg p-2.5`}>
-            <p className={`text-[10px] ${textMuted}`}>Last updated</p>
-            <p className={`text-xs font-semibold ${textPrimary}`}>2026-08-15</p>
+            <p className={`text-[10px] ${textMuted}`}>Shadow method</p>
+            <p className={`text-xs font-semibold ${textPrimary}`}>{models?.shadow_method ?? "-"}</p>
           </div>
         </div>
       </div>
@@ -341,10 +376,10 @@ function SystemInfo({ cardBg, border, textMuted, textPrimary, inner }) {
       <p className={`text-xs font-semibold ${textPrimary} mb-3`}>System information</p>
       <div className="grid grid-cols-2 gap-3 mb-4">
         {[
-          ["Model version", "yolo-tea-v3.2"],
-          ["Dashboard version", "1.0.0-prototype"],
-          ["Database type", "Local mock data"],
-          ["Last updated", "2026-08-31 14:32"],
+          ["Model version", "YOLO11n"],
+          ["Dashboard version", "1.0.0-pp1"],
+          ["Database type", "MySQL"],
+          ["Backend", "FastAPI"],
         ].map(([label, value]) => (
           <div key={label} className={`${inner} rounded-lg p-2.5`}>
             <p className={`text-[10px] ${textMuted}`}>{label}</p>
