@@ -1,12 +1,38 @@
+# Python environment and caches
 .venv/
 __pycache__/
 *.pyc
+.pytest_cache/
+
+# Secrets and local config
 .env
+
+# Local databases
 *.db
-node_modules/
+*.sqlite3
+
+# Data (private photos, includes people)
 data/
-backend/models/*.pt
-backend/static/out/
-runs/
 *.zip
+
+# Model weights and exports (large; share through Google Drive)
+*.pt
+*.pth
+*.onnx
+*.engine
+*.tflite
+*.ncnn*
+runs/
+
+# Generated output
+backend/static/out/
+
+# Node
+node_modules/
+frontend/dist/
+
+# Editor and OS
 .vscode/
+.idea/
+.DS_Store
+Thumbs.db

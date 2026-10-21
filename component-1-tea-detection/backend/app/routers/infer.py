@@ -52,6 +52,11 @@ async def infer(file: UploadFile = File(...), geofence_ok: bool = True):
     img = cv2.imdecode(np.frombuffer(await file.read(), np.uint8), cv2.IMREAD_COLOR)
     if img is None:
         raise HTTPException(400, "File is not a valid image")
+
+    h, w = img.shape[:2]
+    if max(h, w) > config.MAX_IMAGE_SIDE:
+        s = config.MAX_IMAGE_SIDE / max(h, w)
+        img = cv2.resize(img, None, fx=s, fy=s, interpolation=cv2.INTER_AREA)
     det = get_detector()
 
     mask, ratio, shadow_method = get_shadow(img)
