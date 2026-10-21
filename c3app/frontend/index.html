@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TeaSpray Planner</title>
+<style>
+:root{--bg:#0e1a14;--panel:#14241c;--panel2:#1a2e24;--ink:#e8f1ea;--mute:#9bb3a5;--line:#27402f;--accent:#7bd88f;--accent2:#4cc9f0;--warn:#ffb454;--bad:#ff6b6b;--good:#7bd88f}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,Segoe UI,Roboto,sans-serif}
+#app{display:grid;grid-template-columns:400px 1fr;height:100%}
+aside{background:var(--panel);border-right:1px solid var(--line);overflow:auto;padding:16px 16px 48px}
+h1{font-size:20px;margin:0}
+.sub{color:var(--mute);font-size:13px;margin:2px 0 12px}
+label{display:block;font-size:13px;color:var(--mute);margin:10px 0 3px}
+select,input[type=number]{width:100%;background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:8px 9px;font:inherit}
+input[type=range]{width:100%}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+button{background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:9px;padding:9px 11px;font:inherit;cursor:pointer}
+button:hover{border-color:var(--accent)}
+button.on{background:var(--accent);color:#06210f;border-color:var(--accent);font-weight:600}
+button.primary{background:var(--accent);color:#06210f;font-weight:700;border-color:var(--accent);width:100%;padding:13px;margin-top:12px;font-size:16px}
+button:disabled{opacity:.5;cursor:default}
+.tools{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.hint{font-size:13px;color:var(--mute);margin-top:6px}
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th,td{padding:6px 5px;text-align:right;border-bottom:1px solid var(--line)}
+th:first-child,td:first-child{text-align:left}
+th{color:var(--mute);font-weight:500}
+.good{color:var(--good)}.bad{color:var(--bad)}.warn{color:var(--warn)}
+.card{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:12px;margin:10px 0}
+.big{font-size:24px;font-weight:700}
+.tag{display:inline-block;padding:1px 8px;border-radius:99px;font-size:12px;background:#0e1a14;border:1px solid var(--line);color:var(--mute)}
+.small{font-size:13px;color:var(--mute)}
+
+/* steps */
+.step{border:1px solid var(--line);border-radius:14px;margin:12px 0;background:#102017}
+.step>.hd{display:flex;align-items:center;gap:10px;padding:10px 12px;font-weight:600}
+.step>.hd .n{width:26px;height:26px;border-radius:50%;background:var(--panel2);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:13px;flex:none}
+.step.done>.hd .n{background:var(--accent);color:#06210f;border-color:var(--accent)}
+.step>.hd .t{flex:1}
+.step>.hd .s{font-weight:400;font-size:12.5px;color:var(--mute)}
+.step>.bd{padding:0 12px 12px}
+.help{background:#0b150f;border:1px dashed var(--line);border-radius:10px;padding:8px 10px;font-size:13px;color:var(--ink);margin-top:8px}
+.help b{color:var(--accent)}
+details.adv{margin-top:10px}
+details.adv>summary{cursor:pointer;color:var(--accent2);font-size:13.5px;padding:4px 0}
+details.more{margin-top:12px;border-top:1px solid var(--line);padding-top:6px}
+details.more>summary{cursor:pointer;font-weight:600;font-size:14px;padding:6px 0}
+.chk{list-style:none;margin:8px 0 0;padding:0;font-size:13.5px}
+.chk li{padding:2px 0;color:var(--mute)}
+.chk li.ok{color:var(--ink)}
+.chk li::before{content:"○ ";color:var(--mute)}
+.chk li.ok::before{content:"✔ ";color:var(--accent)}
+
+/* verdict */
+.verdict{border:2px solid var(--line);border-radius:14px;padding:14px;margin:10px 0;background:var(--panel2)}
+.verdict.system{border-color:var(--accent)}.verdict.either{border-color:var(--warn)}.verdict.usual{border-color:var(--bad)}
+.verdict .lab{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--mute)}
+.verdict .head{font-size:20px;font-weight:700;margin:2px 0 6px}
+.cmp{width:100%;margin-top:8px}
+.cmp td,.cmp th{padding:7px 6px}
+.cmp td:nth-child(2),.cmp td:nth-child(3){text-align:right;font-variant-numeric:tabular-nums}
+.cmp .win{color:var(--good);font-weight:700}
+.savebox{display:flex;align-items:baseline;gap:8px}
+.savebox .big{font-size:34px}
+
+/* main */
+#main{position:relative;min-width:0;display:flex;flex-direction:column}
+#tabs{display:flex;gap:8px;padding:10px 14px;border-bottom:1px solid var(--line);align-items:center}
+#tabs button{padding:7px 16px}
+#stage{position:relative;flex:1;min-height:0}
+#map,#c3d{position:absolute;inset:0;width:100%;height:100%;display:block}
+#mapwrap{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#0a130e}
+#map{position:relative;inset:auto;width:auto;height:auto;max-width:100%;max-height:100%;aspect-ratio:1;cursor:crosshair;border:1px solid var(--line)}
+#toolbar{position:absolute;left:12px;top:12px;background:#0b150fe6;border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:14px;max-width:min(520px,70%);z-index:3}
+#hud{position:absolute;left:12px;right:12px;bottom:12px;background:#0b150fe6;border:1px solid var(--line);border-radius:12px;padding:10px 12px;display:none}
+#hud .top{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+#hud .stats{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-top:8px}
+.stat{background:var(--panel2);border-radius:8px;padding:6px 8px}
+.stat b{display:block;font-size:12px;color:var(--mute);font-weight:500}
+.stat span{font-size:17px;font-variant-numeric:tabular-nums}
+.bar{height:5px;background:#0e1a14;border-radius:3px;margin-top:4px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--accent)}
+#log{position:absolute;right:12px;top:12px;width:320px;max-height:40%;overflow:auto;background:#0b150fe6;border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:13px;display:none}
+#log div{padding:3px 0;border-bottom:1px solid var(--line)}
+#legend{position:absolute;left:12px;top:12px;background:#0b150fe6;border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:13px;display:none}
+.sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;vertical-align:middle}
+#busy{position:absolute;inset:0;background:#0e1a14cc;display:none;align-items:center;justify-content:center;font-size:17px;z-index:5;text-align:center;padding:20px}
+svg text{fill:var(--mute);font-size:10px}
+#welcome{position:absolute;right:14px;bottom:14px;max-width:340px;background:#0b150ff0;border:1px solid var(--accent);border-radius:12px;padding:12px 14px;font-size:13.5px;z-index:4}
+#welcome b{color:var(--accent)}
+@media(max-width:900px){#app{grid-template-columns:1fr;grid-template-rows:auto 1fr}aside{max-height:55vh}#hud .stats{grid-template-columns:repeat(3,1fr)}}
+</style>
+</head>
+<body>
+<div id="app">
+<aside>
+  <h1>TeaSpray Planner</h1>
+  <div class="sub">Plans a spray-drone mission over your tea field that uses less battery, and shows you the flight before you fly it.</div>
+
+  <!-- STEP 1 -->
+  <div class="step" id="st1">
+    <div class="hd"><span class="n">1</span><span class="t">Load your estate</span><span class="s" id="s1">not loaded</span></div>
+    <div class="bd">
+      <label>Option A: upload a Google Earth file (.kml or .kmz)</label>
+      <input type="file" id="kmlfile" accept=".kml,.kmz" style="width:100%;font-size:13px">
+      <label>Option B: type the location of your field</label>
+      <div class="row">
+        <div><input type="number" id="lat" step="0.0001" placeholder="Latitude e.g. 6.9336"></div>
+        <div><input type="number" id="lon" step="0.0001" placeholder="Longitude e.g. 80.6175"></div>
+      </div>
+      <button id="loadEstate" style="width:100%;margin-top:8px">Load this location</button>
+      <label>Option C: just try it</label>
+      <select id="site"></select>
+      <div class="hint" id="estmsg">Needs internet the first time. We download the real terrain and a satellite picture, and keep a copy on this computer.</div>
+      <details class="adv"><summary>Using a Google Earth file? What goes in it</summary>
+        <div class="small">A <b>polygon</b> is your field. Points named <b>tree</b> (add r=3 for the size) are trees. A point named <b>refill</b> is where the truck stands. You can also skip the file and draw everything in step 2.</div>
+      </details>
+    </div>
+  </div>
+
+  <!-- STEP 2 -->
+  <div class="step" id="st2">
+    <div class="hd"><span class="n">2</span><span class="t">Mark your field</span><span class="s" id="s2">not done</span></div>
+    <div class="bd">
+      <div class="tools">
+        <button id="tField" class="on">① Draw field</button>
+        <button id="tTree">② Add tree</button>
+        <button id="tDepot">③ Refill point</button>
+        <button id="tUndo">Undo last</button>
+      </div>
+      <div class="help" id="toolhelp"></div>
+      <div class="row" style="margin-top:6px">
+        <div><label>Tree size (radius, m)</label><input type="number" id="trad" value="2.0" min="0.5" max="6" step="0.5"></div>
+        <div><label>&nbsp;</label><button id="ex" style="width:100%">Use example field</button></div>
+      </div>
+      <button id="close" style="margin-top:8px;width:100%">Finish the field shape</button>
+      <ul class="chk" id="checks"></ul>
+    </div>
+  </div>
+
+  <!-- STEP 3 -->
+  <div class="step" id="st3">
+    <div class="hd"><span class="n">3</span><span class="t">Your drone</span><span class="s" id="s3">ready</span></div>
+    <div class="bd">
+      <div class="row">
+        <div><label>Tank size (litres)</label><input type="number" id="p_tank_l" value="20" min="5" max="60"></div>
+        <div><label>Spray per hectare (litres)</label><input type="number" id="p_l_per_ha" value="51" min="10" max="120"></div>
+      </div>
+      <details class="adv"><summary>More settings (most people leave these)</summary>
+        <div class="row">
+          <div><label>Spray speed (km/h)</label><input type="number" id="p_spray_kmh" value="6.4" min="2" max="25" step="0.2"></div>
+          <div><label>Spray width (m)</label><input type="number" id="p_swath" value="6" min="2" max="10" step="0.5"></div>
+          <div><label>Keep this much battery (%)</label><input type="number" id="p_reserve" value="15" min="5" max="40"></div>
+          <div><label>Distance kept from trees (m)</label><input type="number" id="p_clearance" value="3.5" min="2" max="8" step="0.5"></div>
+        </div>
+        <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="sat" checked> Show the satellite picture on the map and terrain</label>
+        <label>Planning "brain"</label>
+        <select id="brain"></select>
+        <div class="hint">The trained AI agent chooses the row direction and how much liquid to carry on each trip. Pick "No agent" to use the plain search planner.</div>
+        <label>Make the hills steeper, to test <span id="zsv" class="tag">1.0x</span></label>
+        <input type="range" id="zs" min="1" max="3" step="0.25" value="1">
+        <div class="hint">1.0x is the real terrain. The free terrain data is smooth, and real tea slopes can be steeper.</div>
+      </details>
+    </div>
+  </div>
+
+  <!-- STEP 4 -->
+  <div class="step" id="st4">
+    <div class="hd"><span class="n">4</span><span class="t">Plan and compare</span><span class="s" id="s4"></span></div>
+    <div class="bd">
+      <div class="small">We plan the usual route and the system's route on your field, and tell you which one to fly.</div>
+      <button class="primary" id="plan">Plan my mission</button>
+      <div class="hint" id="planmsg"></div>
+    </div>
+  </div>
+
+  <div id="results"></div>
+</aside>
+
+<div id="main">
+  <div id="tabs">
+    <button id="tabMap" class="on">Map: draw here</button>
+    <button id="tab3d" disabled>3D flight: watch here</button>
+    <span class="small" id="status" style="margin-left:auto"></span>
+  </div>
+  <div id="stage">
+    <div id="mapwrap"><canvas id="map" width="900" height="900"></canvas></div>
+    <canvas id="c3d" style="display:none"></canvas>
+    <div id="toolbar"></div>
+    <div id="legend"></div>
+    <div id="log"></div>
+    <div id="hud">
+      <div class="top">
+        <button id="play" class="on">Play</button>
+        <button id="restart">Start again</button>
+        <label style="margin:0;display:flex;align-items:center;gap:6px">Speed
+          <select id="speed" style="width:auto"><option value="10">slow</option><option value="30" selected>normal</option><option value="100">fast</option><option value="300">very fast</option></select></label>
+        <label style="margin:0;display:flex;align-items:center;gap:6px">Route
+          <select id="strat" style="width:auto"></select></label>
+        <label style="margin:0;display:flex;align-items:center;gap:6px">Colour by
+          <select id="colby" style="width:auto"><option value="tank">how heavy the tank is</option><option value="battery">battery left</option><option value="kind">what the drone is doing</option></select></label>
+        <button id="obst" title="Pretend a new tree appears in front of the drone; the plan is redone on the spot">Test: tree ahead!</button>
+        <button id="vtop">View from above</button><button id="vper">Angled view</button>
+      </div>
+      <div class="stats">
+        <div class="stat"><b>Battery left</b><span id="sBat">-</span><div class="bar"><i id="bBat"></i></div></div>
+        <div class="stat"><b>Liquid in tank</b><span id="sLiq">-</span><div class="bar"><i id="bLiq" style="background:var(--accent2)"></i></div></div>
+        <div class="stat"><b>Doing now</b><span id="sKind">-</span></div>
+        <div class="stat"><b>Trip number</b><span id="sSort">-</span></div>
+        <div class="stat"><b>Field sprayed</b><span id="sProg">-</span><div class="bar"><i id="bProg" style="background:var(--warn)"></i></div></div>
+        <div class="stat"><b>Time left</b><span id="sEta">-</span></div>
+      </div>
+    </div>
+    <div id="welcome"><b>How to use</b><br>1. Load your estate. 2. Mark the field, trees and refill point on the map. 3. Press <b>Plan my mission</b>. You get a clear answer: which route to fly.<br><a href="#" id="welcomeClose" style="color:var(--accent2)">Got it, hide this</a></div>
+    <div id="attr" style="position:absolute;right:8px;bottom:4px;font-size:10px;color:#ffffffaa;display:none;z-index:2;pointer-events:none">Imagery &copy; Esri, Maxar, Earthstar Geographics. Elevation: Terrarium (SRTM and open data).</div>
+    <div id="busy">Planning the mission...</div>
+  </div>
+</div>
+</div>
+<script src="/static/vendor/three.min.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>
