@@ -22,6 +22,17 @@ def event_detail(event_id: int):
         dets = s.query(DetectionRow).filter(DetectionRow.event_id == event_id).all()
         return {**row_to_dict(ev), "detections": [row_to_dict(d) for d in dets]}
 
+@router.get("/detections")
+def detections(limit: int = 500):
+    """One row per detected object, joined with its event (used by the Logs page)."""
+    with Session() as s:
+        rows = (s.query(DetectionRow, Event)
+                 .join(Event, Event.id == DetectionRow.event_id)
+                 .order_by(DetectionRow.id.desc()).limit(limit).all())
+        return [{"id": d.id, "event_id": e.id, "ts": e.ts.isoformat(), "cls": d.cls, "conf": d.conf,
+                 "lat": e.lat, "lon": e.lon, "alt": e.alt, "decision": e.decision, "reason": e.reason,
+                 "spray_status": e.spray_status, "image_url": e.image_url} for d, e in rows]
+
 
 @router.get("/alerts")
 def alerts(limit: int = 50):
