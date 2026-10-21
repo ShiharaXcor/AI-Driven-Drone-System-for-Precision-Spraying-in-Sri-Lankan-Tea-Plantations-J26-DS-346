@@ -20,3 +20,4 @@ SAFETY_MODEL = os.getenv("SAFETY_MODEL", "yolo11n.pt")          # pretrained COC
 USE_COCO_SAFETY = os.getenv("USE_COCO_SAFETY", "true").lower() == "true"
 ENH_METHOD = os.getenv("ENH_METHOD", "clahe")                   # clahe | gamma
 SHADOW_MIN_RATIO = float(os.getenv("SHADOW_MIN_RATIO", "0.10"))
+MAX_IMAGE_SIDE = int(os.getenv("MAX_IMAGE_SIDE", "1280"))
