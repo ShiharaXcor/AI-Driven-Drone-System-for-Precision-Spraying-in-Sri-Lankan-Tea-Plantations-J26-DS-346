@@ -16,7 +16,7 @@ DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./spray.db")
 API_KEY = os.getenv("API_KEY", "dev-key")
 MODEL_PATH = _path(os.getenv("MODEL_PATH", "models/best.pt"))
 SHADOW_MODEL = _path(os.getenv("SHADOW_MODEL", "models/shadow_unet.pt"))
-SAFETY_MODEL = os.getenv("SAFETY_MODEL", "yolo11n.pt")          # pretrained COCO (person/animal)
+SAFETY_MODEL = str(_path(os.getenv("SAFETY_MODEL", "models/yolo11n.pt")))
 USE_COCO_SAFETY = os.getenv("USE_COCO_SAFETY", "true").lower() == "true"
 ENH_METHOD = os.getenv("ENH_METHOD", "clahe")                   # clahe | gamma
 SHADOW_MIN_RATIO = float(os.getenv("SHADOW_MIN_RATIO", "0.10"))
