@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 from app.main import app
-from app.routers import infer as infer_mod
+from app import pipeline
 from app.services import STATE
 
 client = TestClient(app)
@@ -33,7 +33,7 @@ def reset_state():
 
 
 def _post(monkeypatch, dets):
-    monkeypatch.setattr(infer_mod, "get_detector", lambda: FakeDetector(dets))
+    monkeypatch.setattr(pipeline, "get_detector", lambda: FakeDetector(dets))
     return client.post("/api/infer", files={"file": ("a.jpg", _jpg(), "image/jpeg")})
 
 
@@ -43,6 +43,7 @@ def test_infer_sprays_on_clean_tea(monkeypatch):
     body = r.json()
     assert body["decision"] == "SPRAY" and body["shadow_ratio"] > 0.2
     assert body["image_url"].startswith("/static/out/") and body["shadow_url"]
+    assert set(body["timings_ms"]) == {"model_load", "shadow", "detect_raw", "detect_enhanced", "decide"}
 
 
 def test_infer_stops_for_person(monkeypatch):

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 from ..db import Session, SprayTest, row_to_dict
 from ..spray_tests import run_all, summarize
-from .controls import require_key
+from ..auth import require_key
 
 router = APIRouter(prefix="/api/spray-tests", tags=["spray tests"])
 
