@@ -1,12 +1,19 @@
-import { Outlet, useLocation } from "react-router-dom";
+import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { Bell } from "lucide-react";
 import Sidebar from "../components/Sidebar";
 import { useTheme } from "../context/ThemeContext";
 import { SunIcon, MoonIcon } from "../components/Icons";
+import { setToken } from "../api";
 
 export default function DashboardLayout() {
   const { isDark, toggleTheme } = useTheme();
   const location = useLocation();
+    const navigate = useNavigate();
+
+  function logout() {
+    setToken(null);
+    navigate("/login");
+  }
 
   const pageBg = isDark ? "bg-ink" : "bg-light-bg";
   const textMuted = isDark ? "text-muted" : "text-light-muted";
@@ -26,6 +33,9 @@ export default function DashboardLayout() {
         <header className={`flex items-center justify-between px-6 py-4 border-b ${border}`}>
           <p className={`text-xs ${textMuted} capitalize`}>{crumbs}</p>
           <div className="flex items-center gap-3">
+              <button onClick={logout} className={`text-xs ${textMuted} hover:opacity-80`}>
+              Log out
+            </button>
             <Bell className={`w-4 h-4 ${textMuted}`} />
             <button
               onClick={toggleTheme}

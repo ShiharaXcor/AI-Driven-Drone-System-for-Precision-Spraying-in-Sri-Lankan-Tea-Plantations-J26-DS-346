@@ -1,5 +1,7 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { ThemeProvider } from "./context/ThemeContext";
+import { LiveProvider } from "./context/LiveContext";
+import RequireAuth from "./components/RequireAuth";
 
 // Entry screens
 import LandingPage from "./pages/LandingPage";
@@ -47,7 +49,16 @@ export default function App() {
           <Route path="/signup" element={<SignupPage />} />
 
           {/* Dashboard */}
-          <Route path="/dashboard" element={<DashboardLayout />}>
+                    <Route
+            path="/dashboard"
+            element={
+              <RequireAuth>
+                <LiveProvider>
+                  <DashboardLayout />
+                </LiveProvider>
+              </RequireAuth>
+            }
+          >
             {/* Component 1 — Tea Plant Anomaly Detection */}
             <Route path="detection" element={<DetectionHome />} />
             <Route path="detection/map" element={<DetectionMap />} />

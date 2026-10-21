@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useTheme } from "../context/ThemeContext";
+import { api, setToken } from "../api";
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -8,9 +9,22 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
-  function handleLogin(e) {
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function handleLogin(e) {
     e.preventDefault();
-    navigate("/dashboard");
+    setBusy(true);
+    setError("");
+    try {
+      const r = await api.login(email, password);
+      setToken(r.token);
+      navigate("/dashboard/detection");
+    } catch (err) {
+      setError(err.status === 401 ? "Wrong email or password" : err.message);
+    } finally {
+      setBusy(false);
+    }
   }
 
   const pageBg = isDark ? "bg-ink" : "bg-light-bg";
@@ -87,11 +101,14 @@ export default function LoginPage() {
             />
           </div>
 
+          {error && <p className="text-xs text-red-500">{error}</p>}
+
           <button
             type="submit"
-            className={`mt-2 w-full py-3 rounded-full bg-gradient-to-r ${primaryFrom} ${primaryTo} ${primaryTextOn} font-semibold text-sm tracking-wide hover:scale-[1.02] transition-transform`}
+            disabled={busy}
+            className={`mt-2 w-full py-3 rounded-full bg-gradient-to-r ${primaryFrom} ${primaryTo} ${primaryTextOn} font-semibold text-sm tracking-wide hover:scale-[1.02] transition-transform disabled:opacity-60`}
           >
-            LOGIN
+            {busy ? "SIGNING IN..." : "LOGIN"}
           </button>
 
           <button
