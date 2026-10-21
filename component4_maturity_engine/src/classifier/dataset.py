@@ -78,7 +78,7 @@ def save_split(split: dict, out_csv: Path) -> None:
     out_csv.parent.mkdir(parents=True, exist_ok=True)
     with open(out_csv, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
-        w.writerow(["split", "image", "label", "source_photo"])
+        w.writerow(["split", "image", "label", "source_photo", "path"])
         for name, items in split.items():
             for path, lbl, g in items:
-                w.writerow([name, path.name, CLASSES[lbl], g])
+                w.writerow([name, path.name, CLASSES[lbl], g, str(path)])

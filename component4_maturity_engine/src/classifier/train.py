@@ -11,6 +11,8 @@ Transfer learning with EfficientNet-B0 (or MobileNetV3) from timm:
 Usage (from component4_maturity_engine/):
     python -m src.classifier.train --labels data/labels.csv --tiles data/processed/tiles \
         --model efficientnet_b0 --epochs 25 --out runs/effnet_b0
+    # or with a Roboflow classification export (keeps Roboflow's train/valid/test split):
+    python -m src.classifier.train --roboflow data/roboflow --model efficientnet_b0 --out runs/effnet_b0
     python -m src.classifier.train ... --model mobilenetv3_large_100 --out runs/mobilenetv3
 """
 
@@ -153,10 +155,17 @@ def train(args):
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
 
-    items = load_labelled(Path(args.labels), Path(args.tiles))
-    split = group_split(items, seed=args.seed)
+    if args.roboflow:
+        from src.classifier.roboflow import describe_roboflow, load_roboflow
+        split = load_roboflow(args.roboflow)
+        summary = f"Roboflow split ({args.roboflow}):\n{describe_roboflow(split)}"
+    elif args.labels and args.tiles:
+        split = group_split(load_labelled(Path(args.labels), Path(args.tiles)), seed=args.seed)
+        summary = f"Data split (by source photo):\n{describe(split)}"
+    else:
+        raise SystemExit("Give either --roboflow DIR or both --labels and --tiles")
     save_split(split, out / "splits.csv")
-    print(f"Device: {device}\nData split (by source photo):\n{describe(split)}")
+    print(f"Device: {device}\n{summary}")
 
     loaders = {
         "train": DataLoader(TileDataset(split["train"], True), args.batch, shuffle=True,
@@ -244,8 +253,9 @@ def train(args):
 
 def parse_args(argv=None):
     p = argparse.ArgumentParser(description="Train C4 tea maturity classifier")
-    p.add_argument("--labels", required=True)
-    p.add_argument("--tiles", required=True)
+    p.add_argument("--labels", help="labels.csv from the labelling tool")
+    p.add_argument("--tiles", help="folder with the labelled images")
+    p.add_argument("--roboflow", help="Roboflow classification export folder (train/valid/test)")
     p.add_argument("--model", default="efficientnet_b0",
                    help="timm name, e.g. efficientnet_b0 or mobilenetv3_large_100")
     p.add_argument("--out", default="runs/effnet_b0")

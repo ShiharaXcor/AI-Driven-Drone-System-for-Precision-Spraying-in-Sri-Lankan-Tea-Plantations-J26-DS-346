@@ -112,7 +112,9 @@ def predict_split(clf: MaturityClassifier, split_csv: Path, images_dir: Path,
         w.writerow(["image", "true_label", "predicted", "confidence"] +
                    [f"p_{c}" for c in clf.classes])
         for r in rows:
-            pred = clf.predict_whole(images_dir / r["image"])
+            full = Path(r["path"]) if r.get("path") else None
+            img_path = full if full is not None and full.exists() else Path(images_dir or ".") / r["image"]
+            pred = clf.predict_whole(img_path)
             w.writerow([r["image"], r["label"], pred["maturity"], pred["confidence"]] +
                        [pred["probs"][c] for c in clf.classes])
     return len(rows)
@@ -124,7 +126,8 @@ if __name__ == "__main__":
     p.add_argument("--image", help="single photo")
     p.add_argument("--tiles", action="store_true", help="per-tile output for --image")
     p.add_argument("--split", type=Path, help="splits.csv from training")
-    p.add_argument("--images", type=Path, help="folder with the split's images")
+    p.add_argument("--images", type=Path, help="folder with the split's images "
+                   "(not needed when splits.csv has full paths, e.g. Roboflow runs)")
     p.add_argument("--which", default="test", choices=["train", "val", "test"])
     p.add_argument("--out", type=Path, default=Path("test_predictions.csv"))
     a = p.parse_args()
