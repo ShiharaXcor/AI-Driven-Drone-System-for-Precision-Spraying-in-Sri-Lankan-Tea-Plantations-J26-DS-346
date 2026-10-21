@@ -34,3 +34,11 @@ viewer/demo.html
 data/synthetic_flights.csv
 c3app/cache/
 __pycache__/
+
+# c3app generated files
+c3app/cache/
+c3app/agents/optuna_*.db
+c3app/agents/eval_*.json
+c3app/agents/quick_*
+*.zip:Zone.Identifier
+__pycache__/
