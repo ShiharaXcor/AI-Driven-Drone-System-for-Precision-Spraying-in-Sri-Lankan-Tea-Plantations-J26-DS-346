@@ -1,0 +1,69 @@
+{
+ "settings": {
+  "models": [
+   "ppo_ext24_1000k_s0",
+   "ppo_ext24_1000k_s1",
+   "ppo_ext24_crash100_1000k_s0"
+  ],
+  "fields": 20,
+  "seed": 777,
+  "trees": null,
+  "z_scale": 1.0,
+  "list": false
+ },
+ "models": [
+  "ppo_ext24_1000k_s0",
+  "ppo_ext24_1000k_s1",
+  "ppo_ext24_crash100_1000k_s0"
+ ],
+ "summary": {
+  "ppo_ext24_1000k_s0": {
+   "gain_mean_pct": -88.81440621518325,
+   "ci95": [
+    -92.57416853735808,
+    -84.64738235340697
+   ],
+   "win_rate": 0.0,
+   "loss_rate": 1.0,
+   "mean_agent_coverage": 0.12110217837778185,
+   "mean_std_coverage": 0.9933049938374771,
+   "agent_contacts": 14,
+   "agent_mean_sorties": 4.65,
+   "failed": 20,
+   "verdict": "INCOMPLETE: the agent leaves part of the field unsprayed, so it is not a fair route",
+   "seconds": 21.100207805633545
+  },
+  "ppo_ext24_1000k_s1": {
+   "gain_mean_pct": -77.33017815280502,
+   "ci95": [
+    -80.71540474851791,
+    -73.9247536614058
+   ],
+   "win_rate": 0.0,
+   "loss_rate": 1.0,
+   "mean_agent_coverage": 0.4004826557957757,
+   "mean_std_coverage": 0.9933049938374771,
+   "agent_contacts": 10,
+   "agent_mean_sorties": 7.65,
+   "failed": 20,
+   "verdict": "INCOMPLETE: the agent leaves part of the field unsprayed, so it is not a fair route",
+   "seconds": 38.016074419021606
+  },
+  "ppo_ext24_crash100_1000k_s0": {
+   "gain_mean_pct": -78.46731301913397,
+   "ci95": [
+    -81.36778414451305,
+    -75.71925020994497
+   ],
+   "win_rate": 0.0,
+   "loss_rate": 1.0,
+   "mean_agent_coverage": 0.3243894660511139,
+   "mean_std_coverage": 0.9933049938374771,
+   "agent_contacts": 94,
+   "agent_mean_sorties": 6.45,
+   "failed": 20,
+   "verdict": "INCOMPLETE: the agent leaves part of the field unsprayed, so it is not a fair route",
+   "seconds": 32.39889907836914
+  }
+ }
+}
