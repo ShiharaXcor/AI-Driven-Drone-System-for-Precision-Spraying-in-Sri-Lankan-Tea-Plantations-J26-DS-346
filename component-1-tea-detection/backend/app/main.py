@@ -2,7 +2,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from .routers import decide, controls, events
+from .routers import decide, controls, events, infer
 
 STATIC = Path(__file__).resolve().parents[1] / "static"
 (STATIC / "out").mkdir(parents=True, exist_ok=True)
@@ -14,6 +14,7 @@ app.mount("/static", StaticFiles(directory=str(STATIC)), name="static")
 app.include_router(decide.router)
 app.include_router(controls.router)
 app.include_router(events.router)
+app.include_router(infer.router)
 
 
 @app.get("/api/health")

@@ -26,7 +26,9 @@ def finalize(decision, reason, dets, pos, extra=None):
         s.add(ev)
         s.flush()
         for d in dets:
-            s.add(DetectionRow(event_id=ev.id, cls=d.cls, conf=d.conf))
+            b = d.bbox or (None, None, None, None)
+            s.add(DetectionRow(event_id=ev.id, cls=d.cls, conf=d.conf,
+                               x1=b[0], y1=b[1], x2=b[2], y2=b[3]))
         if best("person") >= CFG["person_stop"]:
             s.add(Alert(priority="critical", message=f"Person detected ({best('person'):.2f}). Spray stopped.",
                         lat=pos["lat"], lon=pos["lon"]))

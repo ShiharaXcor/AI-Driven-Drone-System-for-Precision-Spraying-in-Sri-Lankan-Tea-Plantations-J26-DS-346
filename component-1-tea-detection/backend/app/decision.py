@@ -1,10 +1,12 @@
 from dataclasses import dataclass
 
+from typing import Optional, Tuple
 
 @dataclass
 class Det:
     cls: str
     conf: float
+    bbox: Optional[Tuple[int, int, int, int]] = None
 
 
 # Safety classes use LOW stop thresholds: stopping by mistake is safer than missing a person.
