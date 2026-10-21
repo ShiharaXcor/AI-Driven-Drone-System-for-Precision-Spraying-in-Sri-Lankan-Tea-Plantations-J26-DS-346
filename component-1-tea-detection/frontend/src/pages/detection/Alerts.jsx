@@ -1,8 +1,11 @@
 import { useState, useMemo } from "react";
 import { useTheme } from "../../context/ThemeContext";
+import { useLive } from "../../context/LiveContext";
+import { normalizeAlert } from "../../utils";
 
 const SEVERITIES = ["critical", "warning", "info"];
-const ALERT_TYPES = ["Person detected", "Animal detected", "Low battery", "Low confidence", "Camera failure", "Sync complete"];
+const ALERT_TYPES = ["Person detected", "Animal detected", "Low battery", "Low confidence", "Camera failure", "Sync complete"]; //  have  to delete this  one  
+
 
 const SEVERITY_META = {
   critical: {
@@ -75,7 +78,8 @@ function messageFor(type) {
 
 export default function Alerts() {
   const { isDark } = useTheme();
-  const [allAlerts, setAllAlerts] = useState(() => generateAlerts(24));
+  const { alerts: rawAlerts, ack } = useLive();
+  const allAlerts = useMemo(() => rawAlerts.map(normalizeAlert), [rawAlerts]);
   const [severityFilter, setSeverityFilter] = useState("all");
   const [search, setSearch] = useState("");
 
@@ -107,12 +111,12 @@ export default function Alerts() {
     };
   }, [allAlerts, active, history]);
 
-  function acknowledge(id) {
-    setAllAlerts((prev) => prev.map((a) => (a.id === id ? { ...a, acknowledged: true } : a)));
+   function acknowledge(id) {
+    ack([id]);
   }
 
-  function acknowledgeAll() {
-    setAllAlerts((prev) => prev.map((a) => (filteredActive.some((f) => f.id === a.id) ? { ...a, acknowledged: true } : a)));
+   function acknowledgeAll() {
+    ack(filteredActive.map((a) => a.id));
   }
 
   return (

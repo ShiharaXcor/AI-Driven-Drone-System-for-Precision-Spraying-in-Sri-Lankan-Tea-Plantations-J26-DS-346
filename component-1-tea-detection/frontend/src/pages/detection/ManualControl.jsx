@@ -1,10 +1,15 @@
 import { useState } from "react";
 import { useTheme } from "../../context/ThemeContext";
+import { useLive } from "../../context/LiveContext";
+import { api, fileUrl } from "../../api";
 
 export default function ManualControl() {
   const { isDark } = useTheme();
-  const [mode, setMode] = useState("auto"); // "auto" | "manual" | "emergency"
-  const [sprayOn, setSprayOn] = useState(false);
+  const { status, events, refreshStatus } = useLive();
+  const [error, setError] = useState("");
+  const mode = status?.emergency ? "emergency" : status?.manual ? "manual" : "auto"; // "auto" | "manual" | "emergency"
+  const sprayOn = !!status?.relay_on;
+  const latest = events[0] || null;
   const [confirmAction, setConfirmAction] = useState(null); // { type, label, run }
   const [log, setLog] = useState([
     { time: "14:32", event: "System started in Auto mode" },
@@ -33,27 +38,34 @@ export default function ManualControl() {
     setConfirmAction(null);
   }
 
+  async function act(label, fn) {
+    setError("");
+    try {
+      await fn();
+      await refreshStatus();
+      addLog(label);
+    } catch (e) {
+      setError(e.message);
+    }
+  }
+
   function triggerEmergencyStop() {
-    setMode("emergency");
-    setSprayOn(false);
-    addLog("EMERGENCY STOP activated — all systems halted");
+    act("EMERGENCY STOP activated: spray forced OFF", () => api.emergency(true));
   }
 
   function engageManualOverride() {
-    setMode("manual");
-    addLog("Manual override engaged by operator");
+    act("Manual override engaged by operator (pump OFF)", () => api.manual("OFF"));
   }
 
   function resumeAuto() {
-    setMode("auto");
-    setSprayOn(false);
-    addLog("Resumed Automatic mode");
+    act("Resumed Automatic mode", async () => {
+      if (status?.emergency) await api.emergency(false);
+      await api.manual("AUTO");
+    });
   }
 
   function toggleSpray() {
-    const next = !sprayOn;
-    setSprayOn(next);
-    addLog(`Spray manually turned ${next ? "ON" : "OFF"}`);
+    act(`Spray manually turned ${sprayOn ? "OFF" : "ON"}`, () => api.manual(sprayOn ? "OFF" : "ON"));
   }
 
   const modeMeta = {
@@ -149,6 +161,7 @@ export default function ManualControl() {
           >
             Resume Automatic mode
           </button>
+          {error && <p className="text-xs text-red-500">{error}</p>}
         </div>
 
         {/* Right: live reference + activity log */}
@@ -156,12 +169,16 @@ export default function ManualControl() {
           <div className={`${cardBg} border ${border} rounded-2xl p-4`}>
             <p className={`text-xs ${textMuted} mb-2`}>Live feed reference</p>
             <div className={`relative rounded-xl h-40 ${inner} border border-dashed ${border} flex items-center justify-center`}>
-              <p className={`text-xs ${textMuted}`}>Camera feed placeholder</p>
+              {latest?.image_url ? (
+                <img src={fileUrl(latest.image_url)} alt="latest detection" className="w-full h-full object-contain rounded-xl" />
+              ) : (
+                <p className={`text-xs ${textMuted}`}>No image yet</p>
+              )}
             </div>
             <div className="grid grid-cols-2 gap-3 mt-3">
               <div className={`${inner} rounded-lg p-2`}>
                 <p className={`text-[10px] ${textMuted}`}>Tea confidence</p>
-                <p className={`text-sm font-semibold ${textPrimary}`}>0.91</p>
+                <p className={`text-sm font-semibold ${textPrimary}`}>{latest ? latest.tea_conf.toFixed(2) : "-"}</p>
               </div>
               <div className={`${inner} rounded-lg p-2`}>
                 <p className={`text-[10px] ${textMuted}`}>Spray status</p>
