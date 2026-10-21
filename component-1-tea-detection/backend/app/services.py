@@ -7,14 +7,18 @@ STATE = {"emergency": False, "manual": None, "mission_id": None}   # manual: Non
 relay, gps = Relay(), GPS()
 
 
-def finalize(decision, reason, dets, pos, extra=None):
-    """Control priority: emergency > manual > AI. Drives the relay, logs the event, raises alerts."""
+def resolve_control(decision, reason):
+    """Control priority: emergency > manual > AI. Returns (decision, reason, spray_status)."""
     if STATE["emergency"]:
-        decision, reason, status = "NO_SPRAY", "Emergency stop active", "OFF"
-    elif STATE["manual"]:
-        status, reason = STATE["manual"], "Manual override"
-    else:
-        status = "ON" if decision == "SPRAY" else "OFF"
+        return "NO_SPRAY", "Emergency stop active", "OFF"
+    if STATE["manual"]:
+        return decision, "Manual override", STATE["manual"]
+    return decision, reason, ("ON" if decision == "SPRAY" else "OFF")
+
+
+def finalize(decision, reason, dets, pos, extra=None):
+    """Apply control priority, drive the relay, log the event and raise alerts."""
+    decision, reason, status = resolve_control(decision, reason)
     relay.set(status == "ON")
 
     best = lambda c: max([d.conf for d in dets if d.cls == c], default=0.0)
