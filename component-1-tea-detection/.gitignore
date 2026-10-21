@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+*.db
+node_modules/
+data/
+backend/models/*.pt
+backend/static/out/
+runs/
+*.zip
+.vscode/
