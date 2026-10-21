@@ -2,6 +2,7 @@ from fastapi import APIRouter, Header, HTTPException, Depends
 from .. import config
 from ..db import Session, Alert
 from ..services import STATE, relay, gps
+from .. import vision
 
 router = APIRouter(prefix="/api", tags=["controls"])
 
@@ -37,7 +38,10 @@ def manual(mode: str):
 
 @router.get("/status")
 def status():
-    return {**STATE, "relay_on": relay.on, "relay_simulated": relay.simulated}
+    det = vision._detector.mode if vision._detector else "not loaded yet"
+    shadow = "unet" if config.SHADOW_MODEL.exists() else "threshold"
+    return {**STATE, "relay_on": relay.on, "relay_simulated": relay.simulated,
+            "detector_mode": det, "shadow_method": shadow}
 
 
 @router.get("/gps")
