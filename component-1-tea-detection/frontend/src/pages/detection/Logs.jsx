@@ -1,32 +1,32 @@
-import { useState, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useTheme } from "../../context/ThemeContext";
+import { api, fileUrl, downloadUrl } from "../../api";
+import { toDate, fmtDate, fmtClock } from "../../utils";
 
-const CLASSES = ["tea_plant", "person", "animal", "road", "bare_soil"];
+const CLASSES = ["tea_plant", "person", "animal", "road", "rock", "bare_soil", "non_tea_vegetation", "building", "water"];
 const DECISIONS = ["SPRAY", "NO_SPRAY", "UNCERTAIN"];
 
-function generateDetections(count) {
-  const rows = [];
-  for (let i = 1; i <= count; i++) {
-    const cls = CLASSES[Math.floor(Math.random() * CLASSES.length)];
-    const decision = DECISIONS[Math.floor(Math.random() * DECISIONS.length)];
-    const hour = String(8 + Math.floor(Math.random() * 9)).padStart(2, "0");
-    const min = String(Math.floor(Math.random() * 60)).padStart(2, "0");
-    rows.push({
-      id: `DET-${String(1000 + i)}`,
-      timestamp: `2026-08-${String(20 + (i % 8)).padStart(2, "0")} ${hour}:${min}`,
-      hour: parseInt(hour),
-      class: cls,
-      confidence: +(0.55 + Math.random() * 0.44).toFixed(2),
-      lat: (7.2906 + Math.random() * 0.01).toFixed(6),
-      lng: (80.6337 + Math.random() * 0.01).toFixed(6),
-      altitude: +(2 + Math.random() * 1.5).toFixed(1),
-      decision,
-      sprayStatus: decision === "SPRAY" ? "ON" : "OFF",
-      imagePath: `/frames/${1000 + i}.jpg`,
-    });
-  }
-  return rows;
+function toRow(r) {
+  const d = toDate(r.ts);
+  return {
+    id: `DET-${r.id}`,
+    timestamp: `${fmtDate(d)} ${fmtClock(d)}`,
+    hour: d.getHours(),
+    class: r.cls,
+    confidence: +r.conf.toFixed(2),
+    lat: Number(r.lat).toFixed(6),
+    lng: Number(r.lon).toFixed(6),
+    altitude: +(r.alt ?? 0).toFixed(1),
+    decision: r.decision,
+    sprayStatus: r.spray_status,
+    imagePath: r.image_url,
+    reason: r.reason,
+  };
 }
+
+// default filter range: the last 30 days
+const RANGE_TO = fmtDate(new Date());
+const RANGE_FROM = fmtDate(new Date(Date.now() - 30 * 86400000));
 
 const DECISION_STYLE = {
   SPRAY: { dark: "bg-accent/10 border-l-4 border-accent", light: "bg-light-primary/10 border-l-4 border-light-primary", text: "text-accent-dark" },
@@ -75,11 +75,20 @@ export default function Logs() {
 /* ============================= TAB 1: DETECTION HISTORY ============================= */
 
 function DetectionHistory({ isDark }) {
-  const allRows = useMemo(() => generateDetections(87), []);
+  const [allRows, setAllRows] = useState([]);
+
+  useEffect(() => {
+    let on = true;
+    const load = () =>
+      api.detections(1000).then((rows) => on && setAllRows(rows.map(toRow))).catch(() => {});
+    load();
+    const t = setInterval(load, 5000);
+    return () => { on = false; clearInterval(t); };
+  }, []);
 
   const [draft, setDraft] = useState({
-    dateFrom: "2026-08-20",
-    dateTo: "2026-08-28",
+    dateFrom: RANGE_FROM,
+    dateTo: RANGE_TO,
     class: "all",
     decision: "all",
     minConfidence: 0,
@@ -106,6 +115,9 @@ function DetectionHistory({ isDark }) {
       if (applied.class !== "all" && r.class !== applied.class) return false;
       if (applied.decision !== "all" && r.decision !== applied.decision) return false;
       if (r.confidence < applied.minConfidence) return false;
+      const day = r.timestamp.slice(0, 10);
+      if (applied.dateFrom && day < applied.dateFrom) return false;
+      if (applied.dateTo && day > applied.dateTo) return false;
       return true;
     });
     if (search.trim()) {
@@ -160,7 +172,7 @@ function DetectionHistory({ isDark }) {
   }
 
   function resetFilters() {
-    const reset = { dateFrom: "2026-08-20", dateTo: "2026-08-28", class: "all", decision: "all", minConfidence: 0 };
+    const reset = { dateFrom: RANGE_FROM, dateTo: RANGE_TO, class: "all", decision: "all", minConfidence: 0 };
     setDraft(reset);
     setApplied(reset);
     setPage(1);
@@ -339,12 +351,11 @@ function DetectionHistory({ isDark }) {
               </thead>
               <tbody>
                 {pageRows.map((row) => {
-                  const style = DECISION_STYLE[row.decision];
+                  const style = DECISION_STYLE[row.decision] || DECISION_STYLE.UNCERTAIN;
                   const expanded = expandedId === row.id;
                   return (
-                    <>
+                    <Fragment key={row.id}>
                       <tr
-                        key={row.id}
                         onClick={() => setExpandedId(expanded ? null : row.id)}
                         className={`${isDark ? style.dark : style.light} cursor-pointer`}
                       >
@@ -364,7 +375,11 @@ function DetectionHistory({ isDark }) {
                         <td className={`p-2 ${textPrimary}`}>{row.sprayStatus}</td>
                         <td className="p-2">
                           <button
-                            onClick={(e) => { e.stopPropagation(); alert(`Would open ${row.imagePath}`); }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (row.imagePath) window.open(fileUrl(row.imagePath), "_blank");
+                              else alert("No image was saved for this detection.");
+                            }}
                             className="text-cyan-500 underline"
                           >
                             View
@@ -372,16 +387,16 @@ function DetectionHistory({ isDark }) {
                         </td>
                       </tr>
                       {expanded && (
-                        <tr key={`${row.id}-detail`}>
+                        <tr>
                           <td colSpan={9} className={`p-3 ${inner}`}>
                             <p className={`text-xs ${textPrimary}`}>
                               Full detail for <span className="font-mono">{row.id}</span> — reason:{" "}
-                              {row.decision === "SPRAY" ? "Tea confirmed, zone clear" : row.decision === "NO_SPRAY" ? "Safety class detected in frame" : "Confidence below threshold"}
+                              {row.reason}
                             </p>
                           </td>
                         </tr>
                       )}
-                    </>
+                    </Fragment>
                   );
                 })}
               </tbody>
@@ -414,7 +429,7 @@ function DetectionHistory({ isDark }) {
 
         {/* Export */}
         <div className={`${cardBg} border ${border} rounded-2xl p-4 flex flex-wrap gap-2`}>
-          <button onClick={() => alert("Exporting CSV")} className={`text-xs font-semibold px-4 py-2 rounded-lg border ${border} ${textPrimary}`}>Download CSV</button>
+          <button onClick={() => window.open(downloadUrl("events.csv"), "_blank")} className={`text-xs font-semibold px-4 py-2 rounded-lg border ${border} ${textPrimary}`}>Download CSV</button>
           <button onClick={() => alert("Exporting Excel")} className={`text-xs font-semibold px-4 py-2 rounded-lg border ${border} ${textPrimary}`}>Download Excel</button>
           <button onClick={() => alert("Exporting PDF")} className={`text-xs font-semibold px-4 py-2 rounded-lg border ${border} ${textPrimary}`}>Download PDF</button>
         </div>
