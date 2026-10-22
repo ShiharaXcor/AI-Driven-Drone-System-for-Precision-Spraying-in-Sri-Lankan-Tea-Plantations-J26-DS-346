@@ -32,7 +32,8 @@ MODEL = None
 def get_model():
     global MODEL
     if MODEL is None:
-        MODEL = EN.E.load_model()
+        import energy_scenario as ES
+        MODEL = ES.apply(EN.E.load_model())
     return MODEL
 
 

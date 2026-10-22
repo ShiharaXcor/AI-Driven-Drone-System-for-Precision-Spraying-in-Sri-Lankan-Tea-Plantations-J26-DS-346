@@ -94,9 +94,9 @@ if __name__ == "__main__":
     Algo = SAC if os.path.basename(path).startswith("sac") else PPO
     model = Algo.load(path, device="cpu")
     t = time.time()
-    rows = evaluate(model, fields, not a.no_planner, hide_mass=("blind" in os.path.basename(path)))
+    rows = evaluate(model, fields, not a.no_planner)
     s = summarise(rows)
     print(json.dumps(s, indent=1))
     os.makedirs(os.path.join(HERE, "..", "agents"), exist_ok=True)
-    json.dump(dict(set=a.set, summary=s, rows=rows), open(os.path.join(HERE, "..", "agents", f"eval_{os.path.basename(path)}_{a.set}.json"), "w"), default=float)
+    json.dump(dict(set=a.set, summary=s, rows=rows), open(os.path.join(HERE, "..", "agents", f"eval_{os.path.basename(path)}_{a.set}{__import__('energy_scenario').tag()}.json"), "w"), default=float)
     print("seconds", round(time.time() - t))
