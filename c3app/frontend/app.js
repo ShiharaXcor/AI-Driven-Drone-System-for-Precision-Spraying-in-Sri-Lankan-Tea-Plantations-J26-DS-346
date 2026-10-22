@@ -8,9 +8,9 @@ const ST = {
   plan: null, mid: null, strat: 'optimised', routes: {}, es: null, playing: true, frame: null, spraying: [],
   log: [], bw: 777.6
 };
-const COL = { fixed: '#ff6b6b', standard: '#8fb6ff', optimised: '#7bd88f', agent: '#ffd166' };
+const COL = { fixed: '#ff6b6b', standard: '#8fb6ff', optimised: '#7bd88f', agent: '#ffd166', flatfirst: '#c792ea' };
 const IDS = () => (ST.plan ? ST.plan.strategies.map(s => s.id) : ['fixed', 'standard', 'optimised']);
-const NAMES = { fixed: 'No tree avoidance (unsafe)', standard: 'Usual route', optimised: 'Search planner (comparison)', agent: 'System route (AI agent)' };
+const NAMES = { fixed: 'No tree avoidance (unsafe)', standard: 'Usual route', optimised: 'Search planner (comparison)', agent: 'System route (AI agent)', flatfirst: 'Mass-aware path optimisation' };
 const KIND = { transit: 'Flying', spraying: 'Spraying', turning: 'Turning' };
 
 async function api(path, opt) {
@@ -225,30 +225,36 @@ $('plan').onclick = planNow;
 function hexA(h, a) { const n = parseInt(h.slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; }
 function results(p) {
   const S = Object.fromEntries(p.strategies.map(s => [s.id, s.metrics]));
-  const std = S.standard, fix = S.fixed, ag = p.agent, useAg = !!(S.agent && ag && ag.used), opt = useAg ? S.agent : S.optimised;
-  const sysName = useAg ? 'System (AI agent)' : 'System (search planner)';
+  const std = S.standard, fix = S.fixed, ag = p.agent, useAg = !!(S.agent && ag && ag.used), ff = S.flatfirst;
+  const opt = useAg ? S.agent : (p.recommended === 'flatfirst' && ff ? ff : S.optimised);
+  const sysName = useAg ? 'System (AI agent)' : (opt === ff ? 'System (mass-aware path)' : 'System (search planner)');
+  const extra = ff && opt !== ff ? ff : null;
   const sav = (1 - opt.energy_pct / std.energy_pct) * 100;
   const wh = m => (m.energy_pct / 100 * ST.bw);
   const ra = p.route_advice;
   const cls = ra ? ra.choice : (sav >= 5 ? 'system' : (sav >= 1 ? 'either' : 'usual'));
   const head = ra ? ra.headline : (sav >= 1 ? "Fly the system's route" : 'Fly the usual route');
   const f2 = v => v.toFixed(2), f0 = v => v.toFixed(0);
-  const row = (lab, a, b, lower, fmt, unit) => { const A = +fmt(a), B = +fmt(b), wA = lower ? A < B : A > B, wB = lower ? B < A : B > A; return `<tr><td>${lab}</td><td class="${wA ? 'win' : ''}">${fmt(a)}${unit || ''}</td><td class="${wB ? 'win' : ''}">${fmt(b)}${unit || ''}</td></tr>`; };
+  const row = (lab, a, b, lower, fmt, unit, c) => {
+    const vals = [a, b].concat(c == null ? [] : [c]).map(v => +fmt(v)), best = lower ? Math.min(...vals) : Math.max(...vals);
+    const cell = (v, i) => `<td class="${vals[i] === best && vals.some(x => x !== best) ? 'win' : ''}">${fmt(v)}${unit || ''}</td>`;
+    return `<tr><td>${lab}</td>${cell(a, 0)}${cell(b, 1)}${c == null ? '' : cell(c, 2)}</tr>`;
+  };
   let h = `<div class="verdict ${cls}"><div class="lab">Our advice for this field</div><div class="head">${head}</div>
     <div class="savebox"><span class="big ${sav > 0 ? 'good' : ''}">${sav.toFixed(1)}%</span><span class="small">${sav >= 0 ? 'less' : 'more'} battery than the usual route, with the same ground covered (${f0(wh(opt) / p.field_ha)} instead of ${f0(wh(std) / p.field_ha)} Wh per hectare, field ${p.field_ha.toFixed(2)} ha)</span></div>
-    <table class="cmp"><tr><th></th><th>Usual route</th><th>${sysName}</th></tr>
-      ${row('Battery used (full charges)', std.energy_pct / 100, opt.energy_pct / 100, true, f2)}
-      ${row('Take-offs', std.sorties, opt.sorties, true, f0)}
-      ${row('Time (minutes)', std.minutes, opt.minutes, true, f0)}
-      ${row('Tree contacts', std.contact_steps, opt.contact_steps, true, f0)}
-      ${row('Field covered', 100 * std.coverage, 100 * opt.coverage, false, v => v.toFixed(1), ' %')}
-    </table>`;
+    <table class="cmp"><tr><th></th><th>Usual route</th><th>${sysName}</th>${extra ? '<th>Mass-aware path</th>' : ''}</tr>
+      ${row('Battery used (full charges)', std.energy_pct / 100, opt.energy_pct / 100, true, f2, '', extra && extra.energy_pct / 100)}
+      ${row('Take-offs', std.sorties, opt.sorties, true, f0, '', extra && extra.sorties)}
+      ${row('Time (minutes)', std.minutes, opt.minutes, true, f0, '', extra && extra.minutes)}
+      ${row('Tree contacts', std.contact_steps, opt.contact_steps, true, f0, '', extra && extra.contact_steps)}
+      ${row('Field covered', 100 * std.coverage, 100 * opt.coverage, false, v => v.toFixed(1), ' %', extra && 100 * extra.coverage)}
+    </table>${extra ? `<div class="small" style="margin-top:4px">Mass-aware path optimisation: the order of the field strips is searched with the energy model. It uses ${Math.abs(100 * (1 - extra.energy_pct / opt.energy_pct)).toFixed(1)}% ${extra.energy_pct <= opt.energy_pct ? 'less' : 'more'} battery than the system route${extra.sorties < opt.sorties ? `, with ${opt.sorties - extra.sorties} fewer take-offs` : ''}${extra.minutes < opt.minutes - 0.5 ? ` and about ${(opt.minutes - extra.minutes).toFixed(0)} min less flying` : ''}.</div>` : ''}`;
   if (ra) {
     h += `<div class="small" style="margin-top:8px"><b>Why</b></div><ul class="small" style="margin:2px 0 4px 18px;padding:0">${ra.reasons.map(t => `<li>${t}</li>`).join('')}</ul>`;
     if (ra.cautions.length) h += `<div class="small"><b>Things to think about</b></div><ul class="small" style="margin:2px 0 4px 18px;padding:0">${ra.cautions.map(t => `<li>${t}</li>`).join('')}</ul>`;
   }
   h += `<div class="small" style="margin-top:6px"><b>Watch the flight</b> (opens the 3D view):</div>
-    <div style="display:flex;gap:8px;margin-top:4px"><button id="pickUsual" style="flex:1">Watch the usual route</button><button id="pickSystem" class="on" style="flex:1">Watch the system's route</button></div>
+    <div style="display:flex;gap:8px;margin-top:4px"><button id="pickUsual" style="flex:1">Watch the usual route</button><button id="pickSystem" class="on" style="flex:1">Watch the system's route</button>${extra ? '<button id="pickFF" style="flex:1">Watch the mass-aware path</button>' : ''}</div>
     <div class="small" id="pickMsg" style="margin-top:4px"></div></div>`;
 
   const a = p.depot_advice;
@@ -260,17 +266,23 @@ function results(p) {
     `<div class="card"><b>What the AI agent decided</b> <span class="tag">${ag.model}</span><div class="small">It turned the rows to <b>${ag.decisions.theta.toFixed(0)}°</b>, started the sweep ${ag.decisions.flip_rows ? 'from the other side' : 'from the usual side'}, and carried <b>${ag.decisions.loads_l.join(' L, ')} L</b> on the trips. A lighter drone burns less battery. Agent vs usual route: <b class="${ag.vs_standard_pct > 0 ? 'good' : 'bad'}">${ag.vs_standard_pct.toFixed(1)}%</b> battery.${ag.note ? `<br><span class="bad">${ag.note}</span>` : ''}</div></div>`;
   const SL = p.slope_load, su = SL && SL.standard, sm = SL && SL[p.recommended];
   if (su && sm && p.recommended !== 'standard') {
-    const f = v => (v == null ? '-' : v.toFixed(0)), idx = 100 * sm.mass_climb / Math.max(su.mass_climb, 1e-9);
+    const f = v => (v == null ? '-' : v.toFixed(0)), idx = v => 100 * v.mass_climb / Math.max(su.mass_climb, 1e-9);
     const dh = su.climb_heavy_m - sm.climb_heavy_m, dl = sm.climb_light_m - su.climb_light_m;
     const msg = dh > 1
-      ? `The system's route climbs <b class="good">${dh.toFixed(0)} m less</b> while the tank is heavy${dl > 1 ? ` and ${dl.toFixed(0)} m more while it is light` : ''}. Climbing weighted by the drone's weight is <b class="${idx < 100 ? 'good' : 'warn'}">${Math.abs(100 - idx).toFixed(1)}% ${idx < 100 ? 'lower' : 'higher'}</b>.`
+      ? `The system's route climbs <b class="good">${dh.toFixed(0)} m less</b> while the tank is heavy${dl > 1 ? ` and ${dl.toFixed(0)} m more while it is light` : ''}. Climbing weighted by the drone's weight is <b class="${idx(sm) < 100 ? 'good' : 'warn'}">${Math.abs(100 - idx(sm)).toFixed(1)}% ${idx(sm) < 100 ? 'lower' : 'higher'}</b>.`
       : `On this field the system's route does not move the climbing to the light-tank part (heavy-tank climb: ${f(su.climb_heavy_m)} m usual, ${f(sm.climb_heavy_m)} m system). Its saving comes from lighter loads instead.`;
+    const routes = [['standard', 'Usual', su], [p.recommended, 'System', sm]];
+    const sf = SL.flatfirst; if (sf && p.recommended !== 'flatfirst') routes.push(['flatfirst', 'Mass-aware path', sf]);
+    const mx = Math.max(...routes.map(r => Math.max(r[2].climb_heavy_m, r[2].climb_light_m)), 1);
+    const bars = routes.map(r => `<div style="display:grid;grid-template-columns:110px 1fr;gap:8px;align-items:center;margin:4px 0"><span class="small">${r[1]}</span><div>
+        <div style="display:flex;align-items:center;gap:6px"><i style="display:block;height:9px;border-radius:3px;background:#5b3fa0;width:${(100 * r[2].climb_heavy_m / mx).toFixed(1)}%;min-width:2px"></i><span class="small">${f(r[2].climb_heavy_m)} m heavy</span></div>
+        <div style="display:flex;align-items:center;gap:6px;margin-top:2px"><i style="display:block;height:9px;border-radius:3px;background:#f6d365;width:${(100 * r[2].climb_light_m / mx).toFixed(1)}%;min-width:2px"></i><span class="small">${f(r[2].climb_light_m)} m light</span></div></div></div>`).join('');
     d += `<div class="card"><b>Does the drone climb with a heavy or a light tank?</b>
+      <div style="margin-top:6px">${bars}</div>
       <table style="margin-top:6px"><tr><th>Route</th><th>Climb, heavy tank (m)</th><th>Climb, light tank (m)</th><th>Weight x climb</th></tr>
-      <tr><td>Usual</td><td>${f(su.climb_heavy_m)}</td><td>${f(su.climb_light_m)}</td><td>100</td></tr>
-      <tr><td>System</td><td>${f(sm.climb_heavy_m)}</td><td>${f(sm.climb_light_m)}</td><td>${idx.toFixed(0)}</td></tr></table>
+      ${routes.map(r => `<tr><td>${r[1]}</td><td>${f(r[2].climb_heavy_m)}</td><td>${f(r[2].climb_light_m)}</td><td>${r[0] === 'standard' ? '100' : idx(r[2]).toFixed(0)}</td></tr>`).join('')}</table>
       <div class="small" style="margin-top:4px">${msg}</div>
-      <div class="small" style="margin-top:4px">Heavy = tank more than 2/3 full, light = less than 1/3. Climbing is only a small part of the battery use, so this effect is small; most of the saving comes from lighter loads. To see it: in the 3D view choose "Colour by how heavy the tank is" and untick the satellite picture in step 3.</div></div>`;
+      <div class="small" style="margin-top:4px">Heavy = tank more than 2/3 full, light = less than 1/3. "Weight x climb" counts every metre climbed times the drone's weight at that moment; lower means less battery spent on climbing. Climbing is only a small part of the battery use, so this effect is small; most of the saving comes from lighter loads. To see it: in the 3D view choose "Colour by how heavy the tank is" and untick the satellite picture in step 3.</div></div>`;
   }
   d += `<div class="card"><b>Where the saving comes from</b><table style="margin-top:6px"><tr><th>One change at a time</th><th>Battery saved</th></tr>`;
   p.levers.forEach((l, i) => { if (i) d += `<tr><td>${l.label}</td><td class="${l.vs_standard_pct > 0 ? 'good' : ''}">${l.vs_standard_pct >= 0 ? '+' : ''}${l.vs_standard_pct.toFixed(1)}%</td></tr>`; });
@@ -291,10 +303,11 @@ function results(p) {
   const pu = $('pickUsual'), ps = $('pickSystem');
   if (pu) pu.onclick = () => pick(ra ? ra.usual_id : 'standard');
   if (ps) ps.onclick = () => pick(ra ? ra.recommended_id : p.recommended);
+  const pf = $('pickFF'); if (pf) pf.onclick = () => pick('flatfirst');
   const b = $('useDepot'); if (b) b.onclick = () => { ST.depot = [+a.x.toFixed(1), +a.y.toFixed(1)]; drawMap(); planNow(); };
   const cs = $('copySum');
   if (cs) cs.onclick = async () => {
-    const txt = `TeaSpray Planner summary\nField: ${p.field_ha.toFixed(2)} ha, tank ${p.params.tank_l} L\nAdvice: ${head}\nBattery: ${(opt.energy_pct / 100).toFixed(2)} charges (system) vs ${(std.energy_pct / 100).toFixed(2)} (usual), ${sav.toFixed(1)}% ${sav >= 0 ? 'less' : 'more'}\nTake-offs: ${opt.sorties} vs ${std.sorties}\nTime: ${opt.minutes.toFixed(0)} vs ${std.minutes.toFixed(0)} min\nTree contacts: ${opt.contact_steps} vs ${std.contact_steps}\nNote: figures come from an energy model checked against real flight logs; the route has not been flown yet.`;
+    const txt = `TeaSpray Planner summary\nField: ${p.field_ha.toFixed(2)} ha, tank ${p.params.tank_l} L\nAdvice: ${head}\nBattery: ${(opt.energy_pct / 100).toFixed(2)} charges (system) vs ${(std.energy_pct / 100).toFixed(2)} (usual), ${sav.toFixed(1)}% ${sav >= 0 ? 'less' : 'more'}\nTake-offs: ${opt.sorties} vs ${std.sorties}\nTime: ${opt.minutes.toFixed(0)} vs ${std.minutes.toFixed(0)} min\nTree contacts: ${opt.contact_steps} vs ${std.contact_steps}${extra ? `\nMass-aware path optimisation: ${(extra.energy_pct / 100).toFixed(2)} charges` : ''}\nNote: figures come from an energy model checked against real flight logs; the route has not been flown yet.`;
     try { await navigator.clipboard.writeText(txt); $('copyMsg').textContent = 'Copied.'; } catch (e) { $('copyMsg').textContent = txt; }
   };
 }
@@ -483,7 +496,7 @@ $('play').onclick = () => {
 };
 $('restart').onclick = () => { clearSpray(); ST.log = []; $('log').style.display = 'none'; const o = routeObj[ST.strat]; if (o) o.geo.setDrawRange(0, 0); startStream(0); };
 $('speed').onchange = () => { if (ST.es) startStream(ST.curIdx); };
-$('strat').onchange = () => { ST.strat = $('strat').value; for (const k in routeObj) buildRoute(k); legend(); clearSpray(); startStream(0); };
+$('strat').onchange = () => { ST.strat = $('strat').value; for (const k in routeObj) buildRoute(k); legend(); clearSpray(); ST.log = []; $('log').style.display = 'none'; startStream(0); };
 
 // ------------------------------------------------------------------ obstacle during the flight: server re-plans the rest
 $('obst').onclick = async () => {

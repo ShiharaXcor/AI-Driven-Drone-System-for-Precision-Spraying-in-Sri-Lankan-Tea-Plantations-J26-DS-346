@@ -378,13 +378,18 @@ class Frame:
         self._cache["rows"] = out
         return out
 
-    def build(self, flip_rows, flip_dir, avoid=True, start=None):
-        """one continuous path: arrays x, y, v, spray(bool) along dense points (about 1 s apart)"""
-        key = ("path", flip_rows, flip_dir, avoid)
+    def build(self, flip_rows, flip_dir, avoid=True, start=None, order=None):
+        """one continuous path: arrays x, y, v, spray(bool) along dense points (about 1 s apart).
+        order: optional list of row numbers (into rows()) giving the order the rows are sprayed in (used by the flat-first strategy)"""
+        key = ("path", flip_rows, flip_dir, avoid, None if order is None else tuple(order))
         if key in self._cache:
             return self._cache[key]
         P = self.P
-        rows = self.rows()[::-1] if flip_rows else self.rows()
+        allrows = self.rows()
+        if order is not None:
+            rows = [allrows[j] for j in order]
+        else:
+            rows = allrows[::-1] if flip_rows else allrows
         segs = []                                   # (points, speed, spraying, row number)
         last = None
         rn = 0
@@ -641,7 +646,8 @@ DEFAULTS = dict(spray_kmh=6.4, transit_kmh=25.2, turn_kmh=5.4, swath=6.0, l_per_
 class MissionPlanner:
     def __init__(self, sites=None):
         self.sites = sites or Sites()
-        self.model = E.load_model()
+        import energy_scenario as _ES
+        self.model = _ES.apply(E.load_model())
 
     # ---- helpers
     def problem(self, req):
@@ -663,13 +669,99 @@ class MissionPlanner:
                 best = (e, fr_, fd, S)
         return best[1], best[2], best[3], fr, fl
 
-    def _pack(self, P, name, theta, fr_, fd, exact, avoid=True, record=True):
+    def _pack(self, P, name, theta, fr_, fd, exact, avoid=True, record=True, order=None):
         fr = Frame(P, theta)
         fl = Flight(fr)
-        S = fl.run(fr.build(fr_, fd, avoid), exact, record=record)
+        S = fl.run(fr.build(fr_, fd, avoid, order=order), exact, record=record)
         m = fl.metrics(S)
         m.update(name=name, theta=theta, exact_fill=str(exact), avoid=avoid)
         return m, S, fl
+
+    @staticmethod
+    def _slope_load(strats, P):
+        """Where does each route climb: with a heavy tank or a light one? (spraying legs only)"""
+        gx, gy = np.gradient(P.z, GRID)
+        slope = np.degrees(np.arctan(np.hypot(gx, gy)))
+        m_empty, tank = float(P.model.mass_empty_kg), float(P.tank)
+        out = {}
+        for s in strats:
+            if s["id"] not in ("standard", "optimised", "agent", "flatfirst"):
+                continue
+            r = s["route"]
+            x, y = np.asarray(r["x"], float), np.asarray(r["y"], float)
+            liq, kind = np.asarray(r["liq"], float), np.asarray(r["kind"])
+            if len(x) < 3:
+                continue
+            z = P.elev(x, y)
+            sl = map_coordinates(slope, [x / GRID - 0.5, y / GRID - 0.5], order=1, mode="nearest")
+            dz = np.diff(z)
+            up = np.maximum(dz, 0.0)
+            seg_kind = (kind[1:] == 1) & (kind[:-1] == 1)             # spraying legs
+            lq = 0.5 * (liq[1:] + liq[:-1])
+            sls = 0.5 * (sl[1:] + sl[:-1])
+            heavy, light = seg_kind & (lq > tank * 2 / 3), seg_kind & (lq < tank / 3)
+
+            def mean_sl(mk):
+                return float(sls[mk].mean()) if mk.any() else None
+            out[s["id"]] = dict(
+                slope_heavy=mean_sl(heavy), slope_light=mean_sl(light),
+                climb_heavy_m=float(up[heavy].sum()), climb_light_m=float(up[light].sum()),
+                climb_total_m=float(up[seg_kind].sum()),
+                mass_climb=float((up * (m_empty + lq))[seg_kind].sum()),      # kg x m climbed while spraying
+                share_heavy=float(heavy.sum() / max(seg_kind.sum(), 1)), share_light=float(light.sum() / max(seg_kind.sum(), 1)))
+        return out
+
+    @staticmethod
+    def _route_advice(strats, rec, P, bat_wh):
+        """Plain-language answer to: should the pilot fly the usual route or the system's route?"""
+        by = {s["id"]: s["metrics"] for s in strats}
+        usual, mine = by["standard"], by[rec]
+        area = max(float(usual["area_ha"]), 1e-6)
+        sav = (1 - mine["energy_pct"] / usual["energy_pct"]) * 100 if usual["energy_pct"] > 0 else 0.0
+        wh = (usual["energy_pct"] - mine["energy_pct"]) / 100.0 * bat_wh
+        d_sort = int(mine["sorties"] - usual["sorties"])
+        d_min = float(mine["minutes"] - usual["minutes"])
+        safe = mine["contact_steps"] == 0 and mine["coverage"] >= usual["coverage"] - 0.01
+        MODEL_ERR = 5.0     # the energy model's own error on real flights is about 5 %
+        reasons, cautions = [], []
+        if rec == "standard":
+            choice, headline = "usual", "Fly the usual route"
+            reasons.append("The system found no route that is safe and uses less battery than the usual route on this field.")
+        elif not safe:
+            choice, headline = "usual", "Fly the usual route"
+            reasons.append("The system's route did not pass the safety check (tree contact or missed ground).")
+        elif sav >= MODEL_ERR:
+            choice, headline = "system", "Fly the system's route"
+            reasons.append(f"It uses {sav:.1f}% less battery ({wh:.0f} Wh, about {wh / area:.0f} Wh per hectare) with the same coverage.")
+        elif sav >= 1.0:
+            choice, headline = "either", "Either route is fine; the system's route saves a little"
+            reasons.append(f"It saves {sav:.1f}% battery, which is within the energy model's own error of about {MODEL_ERR:.0f}%, so treat it as a small gain.")
+        else:
+            choice, headline = "usual", "Fly the usual route"
+            reasons.append(f"The saving is only {sav:.1f}%, too small to be worth changing how the crew works.")
+        if safe and rec != "standard":
+            reasons.append(f"Tree contacts: {int(mine['contact_steps'])}; coverage {100 * mine['coverage']:.1f}% against {100 * usual['coverage']:.1f}% for the usual route.")
+            if rec == "flatfirst":
+                reasons.append("The route orders the strips of the field by how much battery each order costs, so steep ground is flown with a lighter tank where that saves energy.")
+            elif rec == "agent":
+                reasons.append("The trained agent chose lighter loads for the refills and a row direction that suits this slope. A lighter drone burns much less battery, because hover power grows with weight to the power 1.5.")
+            else:
+                reasons.append("The route uses the best row direction and shares the liquid evenly over the sorties, so the drone is lighter on average.")
+        if d_sort > 0:
+            cautions.append(f"It needs {d_sort} more take-off{'s' if d_sort > 1 else ''} ({int(mine['sorties'])} instead of {int(usual['sorties'])}) because the loads are smaller. Each take-off adds crew work and about 12% battery of fixed cost, which is already counted.")
+        elif d_sort < 0:
+            reasons.append(f"It needs {-d_sort} fewer take-off{'s' if d_sort < -1 else ''}.")
+        if d_min > 1.0:
+            cautions.append(f"It takes about {d_min:.0f} minutes longer ({mine['minutes']:.0f} against {usual['minutes']:.0f}). Choose the usual route if finishing fast matters more than battery.")
+        elif d_min < -1.0:
+            reasons.append(f"It also finishes about {-d_min:.0f} minutes sooner.")
+        if choice == "system" and P.tank >= 25:
+            reasons.append("With a large tank the usual route carries full, heavy loads, which is where the system saves the most.")
+        if P.tank <= 15:
+            cautions.append("With a small tank there is little to gain from lighter loads, so expect small savings.")
+        cautions.append("These figures come from the energy model (about 5% error against real flight logs). The system's route has not been flown for real yet, so test it on a small block first.")
+        return dict(choice=choice, headline=headline, recommended_id=rec, usual_id="standard", saving_pct=float(sav), wh_saved=float(wh),
+                    wh_per_ha=float(wh / area), extra_sorties=d_sort, extra_minutes=d_min, reasons=reasons, cautions=cautions)
 
     def plan(self, req, progress=None, keep=None):
         t0 = time.time()
@@ -704,6 +796,20 @@ class MissionPlanner:
         if e_std_tot <= res[th_best][0] + 1e-9:          # never offer a plan worse than the standard one
             th_best, f2, d2, fill2 = th_std, f0, d0, "trim"
         mopt, Sopt, flopt = self._pack(P, "Optimised route", float(th_best), f2, d2, fill2, True)
+
+        # ---- mass-aware path optimisation: strip order searched with the same energy model
+        mff = Sff = None
+        order_ff = None
+        say("Mass-aware path optimisation")
+        try:
+            import flatfirst as FF
+            ffr = FF.flat_first(P, float(th_best), (f2, d2), fill2)
+            if ffr["e_best"] < ffr["e_ref"] - 1e-9:
+                order_ff = [int(j) for j in ffr["order"]]
+            mff, Sff, _ = self._pack(P, "Mass-aware path optimisation", float(th_best), f2, d2, fill2, True, order=order_ff)
+            mff["strip_order_changed"] = order_ff is not None
+        except Exception:
+            mff = None
 
         # ---- lever tests, each against the standard route
         levers = []
@@ -740,6 +846,9 @@ class MissionPlanner:
             (mopt, Sopt, "optimised", "Searched row direction and start, load-levelled refills, tree arcs."),
         ):
             res_strats.append(dict(id=key, name=m["name"], description=desc, metrics=_clean(m), route=_route(S)))
+        if mff is not None:
+            res_strats.append(dict(id="flatfirst", name=mff["name"], metrics=_clean(mff), route=_route(Sff),
+                                   description="The strips of the field are put in the order that costs the least battery (steep ground with a lighter tank where it helps), searched with the energy model."))
         # ---- the AI agent route: the trained agent decides row direction, sweep and every refill load
         agent_out, agent_keep = None, None
         if req.get("agent_model"):
@@ -771,6 +880,10 @@ class MissionPlanner:
                 keep[key] = dict(P=P, theta=th_, flips=fl_, exact=ex_, avoid=av_,
                                  route=next(s_ for s_ in res_strats if s_["id"] == key)["route"],
                                  metrics=next(s_ for s_ in res_strats if s_["id"] == key)["metrics"])
+        if keep is not None and mff is not None:
+            keep["flatfirst"] = dict(P=P, theta=float(th_best), flips=(f2, d2), exact=fill2, avoid=True, order=order_ff,
+                                     route=next(s_ for s_ in res_strats if s_["id"] == "flatfirst")["route"],
+                                     metrics=next(s_ for s_ in res_strats if s_["id"] == "flatfirst")["metrics"])
         cov_std = next(s["metrics"]["coverage"] for s in res_strats if s["id"] == "standard")
         ok = [s for s in res_strats if s["metrics"]["contact_steps"] == 0 and s["metrics"]["coverage"] >= max(0.90, cov_std - 0.01)]
         rec = min(ok, key=lambda s: s["metrics"]["energy_pct"])["id"] if ok else "standard"
@@ -784,13 +897,15 @@ class MissionPlanner:
                              note="" if good else "Safety check: the agent's route was not used because it touches a tree, misses ground, or uses more battery than the standard route.")
             if good:
                 rec = "agent"
+        route_advice = self._route_advice(res_strats, rec, P, float(self.model.battery_wh))
+        slope_load = self._slope_load(res_strats, P)
         out = dict(
             site=req["site"], polygon=np.asarray(P.poly).tolist(), trees=[dict(x=float(a), y=float(b), r=float(r))
                                                                        for (a, b), r in zip(P.trees, P.rad)],
             depot=P.depot.tolist(), params=P.par, z_scale=float(req.get("z_scale", 1.0)),
             field_ha=poly_area(P.poly) / 1e4, strategies=res_strats, recommended=rec, levers=levers,
             depot_advice=advice, speed_curve=speeds, assumptions=ASSUMPTIONS, battery_wh=float(self.model.battery_wh),
-            seconds=time.time() - t0, theta=float(th_best), agent=agent_out)
+            seconds=time.time() - t0, theta=float(th_best), agent=agent_out, route_advice=route_advice, slope_load=slope_load)
         return out
 
     # ---------------------------------------------------------------- live re-planning
@@ -828,8 +943,8 @@ class MissionPlanner:
         P2 = Problem(P0.z, P0.poly, trees, P0.depot, P0.par, P0.model)
         fr0, fr2 = Frame(P0, info["theta"]), Frame(P2, info["theta"])
         f_, d_ = info["flips"]
-        path0 = fr0.build(f_, d_, info["avoid"])
-        path2 = fr2.build(f_, d_, info["avoid"])
+        path0 = fr0.build(f_, d_, info["avoid"], order=info.get("order"))
+        path2 = fr2.build(f_, d_, info["avoid"], order=info.get("order"))
         x0, y0, v0, sp0, rid0 = path0
         x2, y2, v2, sp2, rid2 = path2
         p_old = int(min(route["pidx"][i], len(rid0) - 1))
