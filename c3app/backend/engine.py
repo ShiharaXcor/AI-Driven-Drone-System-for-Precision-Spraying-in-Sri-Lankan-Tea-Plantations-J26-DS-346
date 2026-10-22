@@ -770,26 +770,43 @@ class MissionPlanner:
         # ---- the three strategies
         say("Standard route")
         th_std = longest_edge_deg(P.poly)
-        f0, d0, S0, fr0, fl0 = self._best(P, th_std, "trim", True)
-        mstd, Sstd, _ = self._pack(P, "Standard route", th_std, f0, d0, "trim", True)
+        try:
+            f0, d0, S0, fr0, fl0 = self._best(P, th_std, "trim", True)
+            mstd, Sstd, _ = self._pack(P, "Standard route", th_std, f0, d0, "trim", True)
+        except RuntimeError as e:
+            raise RuntimeError("The drone cannot finish this field from the refill point you chose (" + str(e) + "). "
+                               "Move the refill point closer to the field, or check the tank size and the battery reserve.")
         say("Fixed route without avoidance")
-        f1, d1, S1, fr1, fl1 = self._best(P, th_std, "trim", False)
-        mfix, Sfix, _ = self._pack(P, "Fixed route (no avoidance)", th_std, f1, d1, "trim", False)
+        try:                                           # the unsafe reference route is optional: skip it if it cannot be flown
+            f1, d1, S1, fr1, fl1 = self._best(P, th_std, "trim", False)
+            mfix, Sfix, _ = self._pack(P, "Fixed route (no avoidance)", th_std, f1, d1, "trim", False)
+        except RuntimeError:
+            mfix = Sfix = f1 = d1 = None
 
         say("Searching row direction")
         thetas = sorted(set([float(t) for t in range(0, 180, 15)] + [th_std, (th_std + 90.0) % 180.0]))
         res = {}
         for th in thetas:
-            f_, d_, S_, fr_, fl_ = self._best(P, float(th), True, True)
+            try:
+                f_, d_, S_, fr_, fl_ = self._best(P, float(th), True, True)
+            except RuntimeError:                       # this row direction cannot be flown from this refill point: skip it
+                continue
             res[th] = (sum(S_["sortie_e"].values()) + 1000.0 * S_["contact"], f_, d_)
-        th_best = min(res, key=lambda t: res[t][0])
-        for th in (th_best - 7.5, th_best + 7.5, th_best - 3.75, th_best + 3.75):
-            th = float(th) % 180.0
-            f_, d_, S_, fr_, fl_ = self._best(P, th, True, True)
-            e = sum(S_["sortie_e"].values()) + 1000.0 * S_["contact"]
-            if e < res[th_best][0] - 1e-9:
-                th_best = th
-                res[th] = (e, f_, d_)
+        if res:
+            th_best = min(res, key=lambda t: res[t][0])
+            for th in (th_best - 7.5, th_best + 7.5, th_best - 3.75, th_best + 3.75):
+                th = float(th) % 180.0
+                try:
+                    f_, d_, S_, fr_, fl_ = self._best(P, th, True, True)
+                except RuntimeError:
+                    continue
+                e = sum(S_["sortie_e"].values()) + 1000.0 * S_["contact"]
+                if e < res[th_best][0] - 1e-9:
+                    th_best = th
+                    res[th] = (e, f_, d_)
+        else:                                          # no searched direction worked: fall back to the standard route
+            th_best = th_std
+            res[th_std] = (sum(S0["sortie_e"].values()) + 1000.0 * S0["contact"], f0, d0)
         _, f2, d2 = res[th_best]
         fill2 = True
         e_std_tot = sum(S0["sortie_e"].values()) + 1000.0 * S0["contact"]
@@ -820,24 +837,39 @@ class MissionPlanner:
                                sorties=m["sorties"], coverage=m["coverage"], contact=m["contact_steps"]))
         lever("Standard route (rows along the longest edge, full tanks, last one trimmed)", mstd)
         say("Lever tests")
-        f_, d_, S_, fr_, fl_ = self._best(P, float(th_best), "trim", True)
-        mA, _, _ = self._pack(P, "angle only", float(th_best), f_, d_, "trim", True, record=False)
-        lever(f"Best row direction only ({th_best:.0f} deg instead of {th_std:.0f})", mA)
-        f_, d_, S_, fr_, fl_ = self._best(P, th_std, True, True)
-        mB, _, _ = self._pack(P, "fill only", th_std, f_, d_, True, True, record=False)
-        lever("Load-levelled refills only (split the liquid evenly over the sorties)", mB)
+        try:
+            f_, d_, S_, fr_, fl_ = self._best(P, float(th_best), "trim", True)
+            mA, _, _ = self._pack(P, "angle only", float(th_best), f_, d_, "trim", True, record=False)
+            lever(f"Best row direction only ({th_best:.0f} deg instead of {th_std:.0f})", mA)
+        except RuntimeError:
+            pass
+        try:
+            f_, d_, S_, fr_, fl_ = self._best(P, th_std, True, True)
+            mB, _, _ = self._pack(P, "fill only", th_std, f_, d_, True, True, record=False)
+            lever("Load-levelled refills only (split the liquid evenly over the sorties)", mB)
+        except RuntimeError:
+            pass
         lever("All levers together (the optimised route)", mopt)
-        f_, d_, S_, fr_, fl_ = self._best(P, th_std, False, True)
-        mF, _, _ = self._pack(P, "full tanks", th_std, f_, d_, False, True, record=False)
-        lever("Reference: a full tank at every refill, nothing trimmed", mF)
+        try:
+            f_, d_, S_, fr_, fl_ = self._best(P, th_std, False, True)
+            mF, _, _ = self._pack(P, "full tanks", th_std, f_, d_, False, True, record=False)
+            lever("Reference: a full tank at every refill, nothing trimmed", mF)
+        except RuntimeError:
+            pass
 
         # ---- refill-point advisor
         say("Refill point advisor")
-        advice = self.depot_advice(P, float(th_best), f2, d2, mopt["energy_pct"])
+        try:
+            advice = self.depot_advice(P, float(th_best), f2, d2, mopt["energy_pct"])
+        except Exception:
+            advice = None
 
         # ---- speed what-if
         say("Speed what-if")
-        speeds = self.speed_curve(req, float(th_best), f2, d2)
+        try:
+            speeds = self.speed_curve(req, float(th_best), f2, d2)
+        except Exception:
+            speeds = []
 
         res_strats = []
         for m, S, key, desc in (
@@ -845,6 +877,8 @@ class MissionPlanner:
             (mstd, Sstd, "standard", "Rows along the longest edge, tree arcs, full tanks with the last one trimmed. The fair baseline."),
             (mopt, Sopt, "optimised", "Searched row direction and start, load-levelled refills, tree arcs."),
         ):
+            if m is None:
+                continue
             res_strats.append(dict(id=key, name=m["name"], description=desc, metrics=_clean(m), route=_route(S)))
         if mff is not None:
             res_strats.append(dict(id="flatfirst", name=mff["name"], metrics=_clean(mff), route=_route(Sff),
@@ -874,7 +908,8 @@ class MissionPlanner:
             except Exception as ex_:                # the plan still works without the agent
                 agent_out = dict(error=str(ex_))
         if keep is not None:
-            for key, th_, fl_, ex_, av_ in (("fixed", th_std, (f1, d1), "trim", False), ("standard", th_std, (f0, d0), "trim", True),
+            for key, th_, fl_, ex_, av_ in ((("fixed", th_std, (f1, d1), "trim", False),) if mfix is not None else ()) + \
+                                           (("standard", th_std, (f0, d0), "trim", True),
                                             ("optimised", float(th_best), (f2, d2), fill2, True)) + \
                     ((("agent",) + (agent_keep["theta"], agent_keep["flips"], True, True),) if agent_keep else ()):
                 keep[key] = dict(P=P, theta=th_, flips=fl_, exact=ex_, avoid=av_,
@@ -1033,7 +1068,10 @@ class MissionPlanner:
             P = self.problem(r2)
             fr = Frame(P, theta)
             fl = Flight(fr)
-            S = fl.run(fr.build(fr_, fd, True), True)
+            try:
+                S = fl.run(fr.build(fr_, fd, True), True)
+            except RuntimeError:                       # this speed cannot be flown here: leave it out of the chart
+                continue
             m = fl.metrics(S)
             out.append(dict(kmh=kmh, energy_pct=m["energy_pct"], sorties=m["sorties"], minutes=m["minutes"],
                             coverage=m["coverage"]))

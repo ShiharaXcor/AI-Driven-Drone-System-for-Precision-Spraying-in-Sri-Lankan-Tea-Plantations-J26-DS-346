@@ -6,6 +6,7 @@
 # then open http://localhost:8000
 #
 # API
+#   GET  /api/evidence                   validation numbers for the Evidence page
 #   GET  /api/sites                      terrain sites
 #   GET  /api/sites/{id}?z_scale=1       height grid of a site
 #   GET  /api/example/{id}               a ready-made demo request
@@ -77,6 +78,27 @@ def agents():
         return AR.list_agents()
     except Exception as e:
         return []
+
+
+@app.get("/api/evidence")
+def evidence():
+    """numbers for the 'Evidence and limits' page: real validation results, agent test results, assumptions"""
+    out = dict(
+        facts=dict(flights_raw=981, flights_kept=679, flights_full_tank=537, calib_n=375, test_n=162,
+                   srtm_m=float(G.SRTM_DX), grid_m=G.GRID),
+        energy=None, agents=[], assumptions=G.ASSUMPTIONS)
+    p = os.path.join(HERE, "..", "evidence", "energy_validation.json")
+    if os.path.exists(p):
+        try:
+            out["energy"] = json.load(open(p))
+        except Exception:
+            pass
+    try:
+        import agent_route as AR
+        out["agents"] = AR.list_agents()
+    except Exception:
+        pass
+    return JSONResponse(_py(out))
 
 
 @app.get("/api/sites")

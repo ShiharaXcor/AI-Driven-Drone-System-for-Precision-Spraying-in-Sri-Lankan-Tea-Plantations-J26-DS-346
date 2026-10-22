@@ -6,7 +6,7 @@ const ST = {
   sites: [], site: null, z: null, n: 0, dx: 5, size: 300, zs: 1,
   poly: [], closed: false, trees: [], depot: null, tool: 'field',
   plan: null, mid: null, strat: 'optimised', routes: {}, es: null, playing: true, frame: null, spraying: [],
-  log: [], bw: 777.6
+  log: [], bw: 777.6, started: false, page: 'start', visited: {}, sum: null, ftab: 'overview'
 };
 const COL = { fixed: '#ff6b6b', standard: '#8fb6ff', optimised: '#7bd88f', agent: '#ffd166', flatfirst: '#c792ea' };
 const IDS = () => (ST.plan ? ST.plan.strategies.map(s => s.id) : ['fixed', 'standard', 'optimised']);
@@ -114,7 +114,7 @@ function info() {
   const done = ST.closed && !!ST.depot;
   $('st2').classList.toggle('done', done); $('s2').textContent = done ? 'done' : 'not done';
   $('st1').classList.toggle('done', !!ST.site); $('s1').textContent = ST.site ? 'ready' : 'not loaded';
-  toolHelp();
+  toolHelp(); nav();
 }
 const HELP = {
   field: "<b>Draw field:</b> click the map once for each corner of your field. When you have all corners, press <b>Finish the field shape</b> (or click the yellow first corner).",
@@ -152,7 +152,6 @@ async function loadSite(id) {
     await new Promise(res => { const im = new Image(); im.onload = () => { ST.img = im; res(); }; im.onerror = res; im.src = `/api/sites/${id}/imagery.png?t=${Date.now()}`; });
   }
   groundMap = makeGround();
-  $('tab3d').disabled = false;
   drawMap();
 }
 function fillSites() {
@@ -164,7 +163,7 @@ async function loadEstate(body) {
   try {
     const o = await post('/api/estate', body);
     ST.sites = await api('/api/sites'); fillSites(); $('site').value = o.site.id;
-    ST.plan = null; ST.routes = {}; ST.mid = null; closeStream();
+    ST.plan = null; ST.routes = {}; ST.mid = null; ST.started = false; ST.sum = null; closeStream();
     ST.poly = o.polygon || []; ST.closed = !!o.polygon; ST.trees = o.trees || []; ST.depot = o.depot || null;
     $('zs').value = 1; $('zsv').textContent = '1.0x';
     await loadSite(o.site.id);
@@ -172,10 +171,10 @@ async function loadEstate(body) {
       const mx = Math.min(...ST.poly.map(p => p[0])), my = Math.min(...ST.poly.map(p => p[1]));
       ST.depot = [Math.max(5, mx - 12), Math.max(5, my - 12)];
     }
-    info(); drawMap(); $('results').innerHTML = '';
+    info(); drawMap(); resetResults();
     $('estmsg').innerHTML = `<span class="good">Loaded ${o.site.name}: a ${o.site.size} m square area, ${o.site.elevation} m above sea level, hills rise ${o.site.relief} m.</span>` +
       (o.polygon ? ` Your field is ${o.area_ha.toFixed(2)} ha.` : ' Now go to step 2 and draw your field on the map.') + (o.warnings || []).map(w => `<br><span class="warn">${w}</span>`).join('');
-    build3d(); show('map');
+    build3d(); go('estate');
   } catch (e) { $('estmsg').innerHTML = `<span class="bad">${e.message}</span>`; }
   $('busy').textContent = 'Planning the mission...'; $('busy').style.display = 'none';
 }
@@ -201,28 +200,30 @@ function params() {
   return o;
 }
 async function planNow() {
-  if (!ST.closed || ST.poly.length < 3) { $('planmsg').innerHTML = '<span class="bad">Step 2 is not finished: draw the field and press "Finish the field shape" (or press "Use example field").</span>'; return; }
-  if (!ST.depot) { $('planmsg').innerHTML = '<span class="bad">Step 2 is not finished: click "Refill point" and then click the map where the truck stands.</span>'; return; }
-  $('busy').textContent = 'Planning your mission: comparing the usual route with the system\'s route...'; $('busy').style.display = 'flex'; $('plan').disabled = true; $('planmsg').textContent = ''; $('welcome').style.display = 'none';
+  if (!ST.closed || ST.poly.length < 3) { $('planmsg').innerHTML = '<span class="bad">The field is not drawn yet. Open "Estate and field", draw the field and press "Finish the field shape" (or press "Use example field").</span>'; return; }
+  if (!ST.depot) { $('planmsg').innerHTML = '<span class="bad">The refill point is missing. Open "Estate and field", click "Refill point" and then click the map where the truck stands.</span>'; return; }
+  $('busy').textContent = 'Planning your mission: comparing the usual route with the system\'s route...'; $('busy').style.display = 'flex'; $('plan').disabled = true; $('planmsg').textContent = '';
   try {
     const out = await post('/api/plan', { site: ST.site, polygon: ST.poly, trees: ST.trees, depot: ST.depot, params: params(), z_scale: ST.zs, agent_model: $('brain') && $('brain').value ? $('brain').value : null });
     closeStream();
     ST.plan = out; ST.mid = out.mission_id; ST.bw = out.battery_wh || 777.6;
     ST.routes = {}; out.strategies.forEach(s => ST.routes[s.id] = s.route);
-    ST.strat = out.recommended; ST.trees = out.trees; ST.log = [];
-    $('tab3d').disabled = false;
+    ST.strat = out.recommended; ST.trees = out.trees; ST.log = []; ST.started = false;
     $('strat').innerHTML = IDS().map(k => `<option value="${k}">${NAMES[k]}</option>`).join(''); $('strat').value = ST.strat;
-    results(out); drawMap(); build3d(); show('3d');
+    drawMap(); build3d(); results(out); bindGo($('results')); bindGo($('why'));
     $('s4').textContent = 'done'; $('st4').classList.add('done');
-    $('planmsg').innerHTML = `<span class="good">Done in ${out.seconds.toFixed(1)} s.</span> The advice is below. The flight is playing in the 3D view.`;
+    $('planmsg').innerHTML = `<span class="good">Done in ${out.seconds.toFixed(1)} s.</span> The advice is below. Press "Watch the system's route in 3D" to see the flight.`;
+    nav(); go('plan');
     $('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
-    startStream(0);
   } catch (e) { $('planmsg').innerHTML = `<span class="bad">${e.message}</span>`; }
   $('busy').style.display = 'none'; $('busy').textContent = 'Planning the mission...'; $('plan').disabled = false;
 }
 $('plan').onclick = planNow;
 
 function hexA(h, a) { const n = parseInt(h.slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; }
+const EMPTY_RESULTS = '<div class="empty"><b>Your advice will appear here</b><span>Press "Plan my mission" above. We compare the usual route with the system\'s route on your field.</span></div>';
+const EMPTY_WHY = '<div class="empty"><b>Nothing to explain yet</b><span>Plan a mission first. This page then shows where the battery saving comes from.</span><button class="pill lime" data-go="plan" style="margin-top:8px">Go to Plan and advice →</button></div>';
+function resetResults() { $('results').innerHTML = EMPTY_RESULTS; $('why').innerHTML = EMPTY_WHY; bindGo($('why')); }
 function results(p) {
   const S = Object.fromEntries(p.strategies.map(s => [s.id, s.metrics]));
   const std = S.standard, fix = S.fixed, ag = p.agent, useAg = !!(S.agent && ag && ag.used), ff = S.flatfirst;
@@ -240,30 +241,49 @@ function results(p) {
     const cell = (v, i) => `<td class="${vals[i] === best && vals.some(x => x !== best) ? 'win' : ''}">${fmt(v)}${unit || ''}</td>`;
     return `<tr><td>${lab}</td>${cell(a, 0)}${cell(b, 1)}${c == null ? '' : cell(c, 2)}</tr>`;
   };
-  let h = `<div class="verdict ${cls}"><div class="lab">Our advice for this field</div><div class="head">${head}</div>
-    <div class="savebox"><span class="big ${sav > 0 ? 'good' : ''}">${sav.toFixed(1)}%</span><span class="small">${sav >= 0 ? 'less' : 'more'} battery than the usual route, with the same ground covered (${f0(wh(opt) / p.field_ha)} instead of ${f0(wh(std) / p.field_ha)} Wh per hectare, field ${p.field_ha.toFixed(2)} ha)</span></div>
+  ST.sum = { sav, sorties: opt.sorties, minutes: opt.minutes, contacts: opt.contact_steps, std_sorties: std.sorties };
+  let thumb = ''; try { thumb = map.toDataURL('image/jpeg', 0.82); } catch (e) { }
+
+  // ---------------- page 4: the advice ----------------
+  let h = `<div class="verdict ${cls}">
+    <div class="vgrid"><div><div class="lab">Our advice for this field</div><div class="head">${head}</div>
+      <div class="savebox"><span class="big ${sav > 0 ? 'good' : ''}">${sav.toFixed(1)}%</span><span class="small">${sav >= 0 ? 'less' : 'more'} battery than the usual route, with the same ground covered<br>(${f0(wh(opt) / p.field_ha)} instead of ${f0(wh(std) / p.field_ha)} Wh per hectare, field ${p.field_ha.toFixed(2)} ha)</span></div></div>
+      ${thumb ? `<figure class="thumb"><img alt="Recommended route over your field" src="${thumb}"><figcaption>${NAMES[ST.strat] || 'Route'} on your field</figcaption></figure>` : '<div></div>'}</div>
     <table class="cmp"><tr><th></th><th>Usual route</th><th>${sysName}</th>${extra ? '<th>Mass-aware path</th>' : ''}</tr>
       ${row('Battery used (full charges)', std.energy_pct / 100, opt.energy_pct / 100, true, f2, '', extra && extra.energy_pct / 100)}
       ${row('Take-offs', std.sorties, opt.sorties, true, f0, '', extra && extra.sorties)}
       ${row('Time (minutes)', std.minutes, opt.minutes, true, f0, '', extra && extra.minutes)}
       ${row('Tree contacts', std.contact_steps, opt.contact_steps, true, f0, '', extra && extra.contact_steps)}
       ${row('Field covered', 100 * std.coverage, 100 * opt.coverage, false, v => v.toFixed(1), ' %', extra && 100 * extra.coverage)}
-    </table>${extra ? `<div class="small" style="margin-top:4px">Mass-aware path optimisation: the order of the field strips is searched with the energy model. It uses ${Math.abs(100 * (1 - extra.energy_pct / opt.energy_pct)).toFixed(1)}% ${extra.energy_pct <= opt.energy_pct ? 'less' : 'more'} battery than the system route${extra.sorties < opt.sorties ? `, with ${opt.sorties - extra.sorties} fewer take-offs` : ''}${extra.minutes < opt.minutes - 0.5 ? ` and about ${(opt.minutes - extra.minutes).toFixed(0)} min less flying` : ''}.</div>` : ''}`;
+    </table>${extra ? `<div class="small" style="margin-top:8px">Mass-aware path optimisation: the order of the field strips is searched with the energy model. It uses ${Math.abs(100 * (1 - extra.energy_pct / opt.energy_pct)).toFixed(1)}% ${extra.energy_pct <= opt.energy_pct ? 'less' : 'more'} battery than the system route${extra.sorties < opt.sorties ? `, with ${opt.sorties - extra.sorties} fewer take-offs` : ''}${extra.minutes < opt.minutes - 0.5 ? ` and about ${(opt.minutes - extra.minutes).toFixed(0)} min less flying` : ''}.</div>` : ''}`;
   if (ra) {
-    h += `<div class="small" style="margin-top:8px"><b>Why</b></div><ul class="small" style="margin:2px 0 4px 18px;padding:0">${ra.reasons.map(t => `<li>${t}</li>`).join('')}</ul>`;
-    if (ra.cautions.length) h += `<div class="small"><b>Things to think about</b></div><ul class="small" style="margin:2px 0 4px 18px;padding:0">${ra.cautions.map(t => `<li>${t}</li>`).join('')}</ul>`;
+    h += `<div style="margin-top:14px"><b>Why</b></div><ul>${ra.reasons.map(t => `<li>${t}</li>`).join('')}</ul>`;
+    if (ra.cautions.length) h += `<div><b>Things to think about</b></div><ul>${ra.cautions.map(t => `<li>${t}</li>`).join('')}</ul>`;
   }
-  h += `<div class="small" style="margin-top:6px"><b>Watch the flight</b> (opens the 3D view):</div>
-    <div style="display:flex;gap:8px;margin-top:4px"><button id="pickUsual" style="flex:1">Watch the usual route</button><button id="pickSystem" class="on" style="flex:1">Watch the system's route</button>${extra ? '<button id="pickFF" style="flex:1">Watch the mass-aware path</button>' : ''}</div>
-    <div class="small" id="pickMsg" style="margin-top:4px"></div></div>`;
-
+  h += `<div class="actions">
+      <button class="pill lime" id="pickSystem">Watch the system's route in 3D →</button>
+      <button class="pill" id="pickUsual">Watch the usual route</button>
+      ${extra ? '<button class="pill" id="pickFF">Watch the mass-aware path</button>' : ''}
+      <button class="pill" id="goWhy">See why it saves energy</button>
+      <button class="pill" id="copySum">Copy a short summary</button></div>
+    <div class="small" id="copyMsg" style="margin-top:6px"></div></div>`;
   const a = p.depot_advice;
-  if (a && a.saving_pct > 0.2) h += `<div class="card"><b>Tip: move the refill point</b><div class="small">The blue circle on the map is a better place for the truck. It would save a further <b class="good">${a.saving_pct.toFixed(1)}%</b> battery.</div><button id="useDepot" style="margin-top:6px;width:100%">Use that spot and plan again</button></div>`;
+  if (a && a.saving_pct > 0.2) h += `<div class="card"><h3>Tip: move the refill point</h3><div class="small" style="font-size:14px">The blue circle on the map (page "Estate and field") is a better place for the truck. It would save a further <b class="good">${a.saving_pct.toFixed(1)}%</b> battery.</div><button class="pill" id="useDepot" style="margin-top:10px">Use that spot and plan again</button></div>`;
+  $('results').innerHTML = h;
 
-  // ---- details, hidden until asked for
+  // ---------------- page 6: why it saves energy ----------------
+  let w = `<div class="nums">
+    <div><div class="num ${sav > 0 ? 'good' : ''}">${sav.toFixed(1)}%</div><div class="lbl">${sav >= 0 ? 'less' : 'more'} battery</div><div class="sub">than the usual route, same ground covered</div></div>
+    <div><div class="num">${opt.sorties}</div><div class="lbl">take-offs</div><div class="sub">the usual route needs ${std.sorties}</div></div>
+    <div><div class="num">${f0(opt.minutes)}</div><div class="lbl">minutes in the air</div><div class="sub">the usual route needs ${f0(std.minutes)}</div></div></div>
+    <div class="ways">
+      <div class="card"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3s6 6.5 6 11a6 6 0 01-12 0c0-4.5 6-11 6-11z"/></svg></div><h3>Carry less liquid</h3><div class="small" style="font-size:14px">A lighter drone burns less power just to stay in the air. The planner chooses how much liquid to take on each trip.</div></div>
+      <div class="card"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 8-8M15 7h6v6"/></svg></div><h3>Climb while light</h3><div class="small" style="font-size:14px">Climbing with a full tank costs more than climbing with a nearly empty one. Order the strips so the steep parts come later.</div></div>
+      <div class="card"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h16M14 6l6 6-6 6"/></svg></div><h3>Turn rows the right way</h3><div class="small" style="font-size:14px">The row direction changes how far the drone flies and how much it climbs. The planner tests the directions and keeps a good one.</div></div>
+    </div>`;
   let d = '';
-  if (ag) d += ag.error ? `<div class="card"><b class="bad">The AI agent could not run</b><div class="small">${ag.error}</div></div>` :
-    `<div class="card"><b>What the AI agent decided</b> <span class="tag">${ag.model}</span><div class="small">It turned the rows to <b>${ag.decisions.theta.toFixed(0)}°</b>, started the sweep ${ag.decisions.flip_rows ? 'from the other side' : 'from the usual side'}, and carried <b>${ag.decisions.loads_l.join(' L, ')} L</b> on the trips. A lighter drone burns less battery. Agent vs usual route: <b class="${ag.vs_standard_pct > 0 ? 'good' : 'bad'}">${ag.vs_standard_pct.toFixed(1)}%</b> battery.${ag.note ? `<br><span class="bad">${ag.note}</span>` : ''}</div></div>`;
+  if (ag) d += ag.error ? `<div class="card"><h3 class="bad">The AI agent could not run</h3><div class="small">${ag.error}</div></div>` :
+    `<div class="card"><h3>What the AI agent decided <span class="tag">${ag.model}</span></h3><div class="small" style="font-size:14px">It turned the rows to <b>${ag.decisions.theta.toFixed(0)}°</b>, started the sweep ${ag.decisions.flip_rows ? 'from the other side' : 'from the usual side'}, and carried <b>${ag.decisions.loads_l.join(' L, ')} L</b> on the trips. A lighter drone burns less battery. Agent vs usual route: <b class="${ag.vs_standard_pct > 0 ? 'good' : 'bad'}">${ag.vs_standard_pct.toFixed(1)}%</b> battery.${ag.note ? `<br><span class="bad">${ag.note}</span>` : ''}</div></div>`;
   const SL = p.slope_load, su = SL && SL.standard, sm = SL && SL[p.recommended];
   if (su && sm && p.recommended !== 'standard') {
     const f = v => (v == null ? '-' : v.toFixed(0)), idx = v => 100 * v.mass_climb / Math.max(su.mass_climb, 1e-9);
@@ -274,65 +294,215 @@ function results(p) {
     const routes = [['standard', 'Usual', su], [p.recommended, 'System', sm]];
     const sf = SL.flatfirst; if (sf && p.recommended !== 'flatfirst') routes.push(['flatfirst', 'Mass-aware path', sf]);
     const mx = Math.max(...routes.map(r => Math.max(r[2].climb_heavy_m, r[2].climb_light_m)), 1);
-    const bars = routes.map(r => `<div style="display:grid;grid-template-columns:110px 1fr;gap:8px;align-items:center;margin:4px 0"><span class="small">${r[1]}</span><div>
-        <div style="display:flex;align-items:center;gap:6px"><i style="display:block;height:9px;border-radius:3px;background:#5b3fa0;width:${(100 * r[2].climb_heavy_m / mx).toFixed(1)}%;min-width:2px"></i><span class="small">${f(r[2].climb_heavy_m)} m heavy</span></div>
-        <div style="display:flex;align-items:center;gap:6px;margin-top:2px"><i style="display:block;height:9px;border-radius:3px;background:#f6d365;width:${(100 * r[2].climb_light_m / mx).toFixed(1)}%;min-width:2px"></i><span class="small">${f(r[2].climb_light_m)} m light</span></div></div></div>`).join('');
-    d += `<div class="card"><b>Does the drone climb with a heavy or a light tank?</b>
-      <div style="margin-top:6px">${bars}</div>
-      <table style="margin-top:6px"><tr><th>Route</th><th>Climb, heavy tank (m)</th><th>Climb, light tank (m)</th><th>Weight x climb</th></tr>
+    const bars = routes.map(r => `<div style="display:grid;grid-template-columns:120px 1fr;gap:8px;align-items:center;margin:6px 0"><span class="small">${r[1]}</span><div>
+        <div style="display:flex;align-items:center;gap:6px"><i style="display:block;height:10px;border-radius:5px;background:#5b3fa0;width:${(65 * r[2].climb_heavy_m / mx).toFixed(1)}%;min-width:2px"></i><span class="small" style="white-space:nowrap">${f(r[2].climb_heavy_m)} m heavy</span></div>
+        <div style="display:flex;align-items:center;gap:6px;margin-top:2px"><i style="display:block;height:10px;border-radius:5px;background:#f0b429;width:${(65 * r[2].climb_light_m / mx).toFixed(1)}%;min-width:2px"></i><span class="small" style="white-space:nowrap">${f(r[2].climb_light_m)} m light</span></div></div></div>`).join('');
+    d += `<div class="card"><h3>Does the drone climb with a heavy or a light tank?</h3>
+      <div>${bars}</div>
+      <table style="margin-top:8px"><tr><th>Route</th><th>Climb, heavy tank (m)</th><th>Climb, light tank (m)</th><th>Weight x climb</th></tr>
       ${routes.map(r => `<tr><td>${r[1]}</td><td>${f(r[2].climb_heavy_m)}</td><td>${f(r[2].climb_light_m)}</td><td>${r[0] === 'standard' ? '100' : idx(r[2]).toFixed(0)}</td></tr>`).join('')}</table>
-      <div class="small" style="margin-top:4px">${msg}</div>
-      <div class="small" style="margin-top:4px">Heavy = tank more than 2/3 full, light = less than 1/3. "Weight x climb" counts every metre climbed times the drone's weight at that moment; lower means less battery spent on climbing. Climbing is only a small part of the battery use, so this effect is small; most of the saving comes from lighter loads. To see it: in the 3D view choose "Colour by how heavy the tank is" and untick the satellite picture in step 3.</div></div>`;
+      <div style="margin-top:8px;font-size:14px">${msg}</div>
+      <div class="small" style="margin-top:6px">Heavy = tank more than 2/3 full, light = less than 1/3. "Weight x climb" counts every metre climbed times the drone's weight at that moment; lower means less battery spent on climbing. Climbing is only a small part of the battery use, so this effect is small; most of the saving comes from lighter loads. To see it: in the Flight viewer choose "Colour by how heavy the tank is" and untick the satellite picture on the Drone page.</div></div>`;
   }
-  d += `<div class="card"><b>Where the saving comes from</b><table style="margin-top:6px"><tr><th>One change at a time</th><th>Battery saved</th></tr>`;
+  d += `<div class="card"><h3>Where the saving comes from</h3><table><tr><th>One change at a time</th><th>Battery saved</th></tr>`;
   p.levers.forEach((l, i) => { if (i) d += `<tr><td>${l.label}</td><td class="${l.vs_standard_pct > 0 ? 'good' : ''}">${l.vs_standard_pct >= 0 ? '+' : ''}${l.vs_standard_pct.toFixed(1)}%</td></tr>`; });
   d += `</table></div>`;
-  d += `<div class="card"><b>All routes side by side</b><table style="margin-top:6px"><tr><th>Route</th><th>Battery</th><th>Take-offs</th><th>Min</th><th>Covered</th><th>Tree hits</th></tr>`;
+  d += `<div class="card"><h3>All routes side by side</h3><table><tr><th>Route</th><th>Battery</th><th>Take-offs</th><th>Min</th><th>Covered</th><th>Tree hits</th></tr>`;
   p.strategies.forEach(s => {
     const m = s.metrics;
     d += `<tr><td><span class="sw" style="background:${COL[s.id]}"></span>${NAMES[s.id] || s.name}</td><td>${(m.energy_pct / 100).toFixed(2)}</td><td>${m.sorties}</td><td>${m.minutes.toFixed(0)}</td><td>${(100 * m.coverage).toFixed(1)}%</td><td class="${m.contact_steps ? 'bad' : 'good'}">${m.contact_steps}</td></tr>`;
   });
-  d += `</table><div class="small" style="margin-top:4px">Battery is in full charges (1.00 = one whole battery). Tree hits = moments closer than 1 m to a tree.${fix.contact_steps ? ` The "no avoidance" route flies through trees ${fix.contact_steps} times; the planned routes stay at least ${Math.min(std.min_gap_m, opt.min_gap_m).toFixed(1)} m away.` : ''}</div></div>`;
-  d += `<div class="card"><b>What if you spray faster or slower?</b>${speedChart(p)}<div class="small">Battery for the whole field against spray speed. Check the drone's manual and spray drift before going above its rated speed.</div></div>`;
-  d += `<div class="card"><b>Assumptions and limits</b><ul class="small" style="margin:4px 0 0 18px;padding:0">${p.assumptions.map(x => `<li>${x}</li>`).join('')}</ul></div>`;
-  h += `<details class="more"><summary>Show the details (why it is better, numbers, assumptions)</summary>${d}</details>`;
-  h += `<button id="copySum" style="width:100%;margin-top:10px">Copy a short summary to share</button><div class="small" id="copyMsg"></div>`;
-  $('results').innerHTML = h;
+  d += `</table><div class="small" style="margin-top:6px">Battery is in full charges (1.00 = one whole battery). Tree hits = moments closer than 1 m to a tree.${fix && fix.contact_steps ? ` The "no avoidance" route flies through trees ${fix.contact_steps} times; the planned routes stay at least ${Math.min(std.min_gap_m, opt.min_gap_m).toFixed(1)} m away.` : ''}</div></div>`;
+  d += `<div class="card"><h3>What if you spray faster or slower?</h3>${speedChart(p)}<div class="small">Battery for the whole field against spray speed. Check the drone's manual and spray drift before going above its rated speed.</div></div>`;
+  $('why').innerHTML = w + d;
 
-  const pick = id => { $('strat').value = id; $('strat').onchange(); show('3d'); const t = $('pickMsg'); if (t) t.textContent = 'Showing: ' + NAMES[id] + '. Press Play in the 3D view to watch it.'; };
+  // ---------------- buttons ----------------
+  const pick = id => { $('strat').value = id; ST.started = true; $('strat').onchange(); go('viewer'); };
   const pu = $('pickUsual'), ps = $('pickSystem');
   if (pu) pu.onclick = () => pick(ra ? ra.usual_id : 'standard');
   if (ps) ps.onclick = () => pick(ra ? ra.recommended_id : p.recommended);
   const pf = $('pickFF'); if (pf) pf.onclick = () => pick('flatfirst');
+  const gw = $('goWhy'); if (gw) gw.onclick = () => go('why');
   const b = $('useDepot'); if (b) b.onclick = () => { ST.depot = [+a.x.toFixed(1), +a.y.toFixed(1)]; drawMap(); planNow(); };
   const cs = $('copySum');
   if (cs) cs.onclick = async () => {
-    const txt = `TeaSpray Planner summary\nField: ${p.field_ha.toFixed(2)} ha, tank ${p.params.tank_l} L\nAdvice: ${head}\nBattery: ${(opt.energy_pct / 100).toFixed(2)} charges (system) vs ${(std.energy_pct / 100).toFixed(2)} (usual), ${sav.toFixed(1)}% ${sav >= 0 ? 'less' : 'more'}\nTake-offs: ${opt.sorties} vs ${std.sorties}\nTime: ${opt.minutes.toFixed(0)} vs ${std.minutes.toFixed(0)} min\nTree contacts: ${opt.contact_steps} vs ${std.contact_steps}${extra ? `\nMass-aware path optimisation: ${(extra.energy_pct / 100).toFixed(2)} charges` : ''}\nNote: figures come from an energy model checked against real flight logs; the route has not been flown yet.`;
+    const txt = `TeaSpray Planner summary\nField: ${p.field_ha.toFixed(2)} ha, tank ${p.params.tank_l} L\nAdvice: ${head}\nBattery: ${(opt.energy_pct / 100).toFixed(2)} charges (system) vs ${(std.energy_pct / 100).toFixed(2)} (usual), ${Math.abs(sav).toFixed(1)}% ${sav >= 0 ? 'less' : 'more'}\nTake-offs: ${opt.sorties} vs ${std.sorties}\nTime: ${opt.minutes.toFixed(0)} vs ${std.minutes.toFixed(0)} min\nTree contacts: ${opt.contact_steps} vs ${std.contact_steps}${extra ? `\nMass-aware path optimisation: ${(extra.energy_pct / 100).toFixed(2)} charges` : ''}\nNote: figures come from an energy model checked against real flight logs; the route has not been flown yet.`;
     try { await navigator.clipboard.writeText(txt); $('copyMsg').textContent = 'Copied.'; } catch (e) { $('copyMsg').textContent = txt; }
   };
 }
 function speedChart(p) {
+  if (!p.speed_curve || p.speed_curve.length < 2) return '<div class="small">Not enough speeds could be flown on this field to draw the chart.</div>';
   const d = p.speed_curve, W = 330, H = 120, L = 34, B = 20, mx = Math.max(...d.map(r => r.energy_pct)) / 100;
   const X = i => L + i * (W - L - 8) / (d.length - 1), Y = v => 8 + (H - B - 8) * (1 - v / mx);
-  let s = `<svg width="100%" viewBox="0 0 ${W} ${H}"><g stroke="#27402f">`;
+  let s = `<svg width="100%" viewBox="0 0 ${W} ${H}"><g stroke="#e1e3dd">`;
   [0, 0.5, 1].forEach(f => s += `<line x1="${L}" x2="${W - 8}" y1="${Y(mx * f)}" y2="${Y(mx * f)}"/>`);
   s += `</g>`;
   [0, 0.5, 1].forEach(f => s += `<text x="2" y="${Y(mx * f) + 3}">${(mx * f).toFixed(1)}</text>`);
-  s += `<polyline fill="none" stroke="#7bd88f" stroke-width="2" points="${d.map((r, i) => X(i) + ',' + Y(r.energy_pct / 100)).join(' ')}"/>`;
-  d.forEach((r, i) => s += `<circle cx="${X(i)}" cy="${Y(r.energy_pct / 100)}" r="3" fill="#7bd88f"/><text x="${X(i) - 8}" y="${H - 6}">${r.kmh}</text>`);
+  s += `<polyline fill="none" stroke="#2f9e44" stroke-width="2" points="${d.map((r, i) => X(i) + ',' + Y(r.energy_pct / 100)).join(' ')}"/>`;
+  d.forEach((r, i) => s += `<circle cx="${X(i)}" cy="${Y(r.energy_pct / 100)}" r="3" fill="#2f9e44"/><text x="${X(i) - 8}" y="${H - 6}">${r.kmh}</text>`);
   s += `<text x="${L}" y="${H - 6}" style="display:none"></text></svg><div class="small" style="margin-top:-4px">km/h along the bottom, battery charges up the side</div>`;
   return s;
 }
 
-// ------------------------------------------------------------------ tabs
-function show(which) {
-  const is3 = which === '3d';
-  $('mapwrap').style.display = is3 ? 'none' : 'flex'; $('c3d').style.display = is3 ? 'block' : 'none';
-  $('tabMap').classList.toggle('on', !is3); $('tab3d').classList.toggle('on', is3);
-  $('toolbar').style.display = is3 ? 'none' : 'block'; $('hud').style.display = is3 && ST.plan ? 'block' : 'none'; $('legend').style.display = is3 && ST.plan ? 'block' : 'none'; $('log').style.display = is3 && ST.log.length ? 'block' : 'none';
-  if (is3) { resize(); dirty = true; } else drawMap();
+// ------------------------------------------------------------------ pages (sidebar)
+const PAGES = ['start', 'estate', 'drone', 'plan', 'viewer', 'why', 'evidence'];
+function polyHa() {
+  if (ST.poly.length < 3) return 0;
+  return Math.abs(ST.poly.reduce((s, p, i) => { const q = ST.poly[(i + 1) % ST.poly.length]; return s + p[0] * q[1] - q[0] * p[1]; }, 0)) / 2 / 1e4;
 }
-$('tabMap').onclick = () => show('map'); $('welcomeClose').onclick = e => { e.preventDefault(); $('welcome').style.display = 'none'; }; $('tab3d').onclick = () => { if (!ST.plan) build3d(); show('3d'); };
+function bindGo(root) { (root || document).querySelectorAll('[data-go]').forEach(b => { if (!b.classList.contains('nv')) b.onclick = () => go(b.dataset.go); }); }
+function listHtml(items) { return items.map(([ok, t]) => `<li class="${ok ? 'ok' : ''}">${t}</li>`).join(''); }
+function nav() {
+  fieldCard();
+  const ready = ST.closed && !!ST.depot, planned = !!ST.plan;
+  const mark = (p, d) => { const b = document.querySelector(`.nv[data-go="${p}"]`); if (b) b.classList.toggle('done', !!d); };
+  mark('start', ST.visited.estate); mark('estate', ready); mark('drone', ST.visited.drone && ready); mark('plan', planned);
+  mark('viewer', planned && ST.visited.viewer); mark('why', planned && ST.visited.why); mark('evidence', ST.visited.evidence);
+  ['viewer', 'why'].forEach(p => document.querySelector(`.nv[data-go="${p}"]`).classList.toggle('lock', !planned));
+  const st = $('startStatus');
+  if (st) st.innerHTML = listHtml([
+    [!!ST.site, ST.site ? 'Estate loaded: <b>' + ((ST.sites.find(s => s.id === ST.site) || {}).name || ST.site) + '</b>' : 'Estate: not loaded yet'],
+    [ST.closed, ST.closed ? `Field drawn: <b>${polyHa().toFixed(2)} ha</b>` : 'Field: not drawn yet'],
+    [!!ST.depot, ST.depot ? 'Refill point placed' : 'Refill point: not placed yet'],
+    [planned, planned ? 'Mission planned: see "Plan and advice"' : 'Mission: not planned yet']]);
+}
+function planCheck() {
+  const ready = ST.closed && !!ST.depot, nm = (ST.sites.find(s => s.id === ST.site) || {}).name;
+  const brain = $('brain') && $('brain').value ? $('brain').value : null;
+  $('planCheck').innerHTML = listHtml([
+    [!!ST.site, ST.site ? `Estate: <b>${nm || ST.site}</b>` : 'Estate: not loaded'],
+    [ST.closed, ST.closed ? `Field: <b>${polyHa().toFixed(2)} ha</b>, ${ST.trees.length} tree${ST.trees.length === 1 ? '' : 's'} marked` : 'Field: not drawn yet'],
+    [!!ST.depot, ST.depot ? 'Refill point placed' : 'Refill point: not placed yet'],
+    [true, `Drone: <b>${$('p_tank_l').value} L</b> tank, <b>${$('p_l_per_ha').value} L</b> per hectare`],
+    [true, brain ? `Planning brain: <b>AI agent ${brain}</b>` : 'Planning brain: plain search planner (no agent)']]);
+  $('planFix').style.display = ready ? 'none' : 'inline-flex';
+}
+function go(p) {
+  if (ST.page === 'viewer' && p !== 'viewer') pauseViewer();
+  ST.page = p; ST.visited[p] = true;
+  PAGES.forEach(k => $('pg-' + k).classList.toggle('on', k === p));
+  document.querySelectorAll('.nv').forEach(b => b.classList.toggle('on', b.dataset.go === p));
+  $('content').scrollTop = 0;
+  if (p === 'estate') drawMap();
+  if (p === 'plan') planCheck();
+  if (p === 'viewer') enterViewer();
+  if (p === 'evidence') loadEvidence();
+  nav();
+}
+function enterViewer() {
+  const has = !!ST.plan;
+  $('viewerEmpty').style.display = has ? 'none' : 'flex';
+  $('hud').style.display = has ? 'block' : 'none'; $('legend').style.display = has ? 'block' : 'none';
+  $('log').style.display = has && ST.log.length ? 'block' : 'none';
+  resize(); dirty = true;
+  if (has && !ST.started) { ST.started = true; startStream(0); }
+}
+function pauseViewer() { if (ST.es) { closeStream(); ST.playing = false; $('play').textContent = 'Play'; } }
+document.querySelectorAll('.nv').forEach(b => b.onclick = () => {
+  const p = b.dataset.go;
+  if ((p === 'viewer' || p === 'why') && !ST.plan) { go('plan'); $('planmsg').innerHTML = '<span class="warn">Make a plan first. The ' + (p === 'viewer' ? 'flight viewer' : 'explanation') + ' opens after that.</span>'; return; }
+  go(p);
+});
+bindGo();
+
+
+// ------------------------------------------------------------------ field card on the start page
+const FI = {
+  area: '<path d="M4 6l8-3 8 3-2 12-6 3-6-3z"/>', tree: '<path d="M12 21v-6M12 3l5 7h-3l4 6H6l4-6H7z"/>', slope: '<path d="M3 19h18L9 6z"/>',
+  relief: '<path d="M3 19l6-10 4 6 3-4 5 8z"/>', elev: '<path d="M12 3v14M7 12l5 5 5-5M5 21h14"/>', tank: '<path d="M12 3s6 6.5 6 11a6 6 0 01-12 0c0-4.5 6-11 6-11z"/>',
+  spray: '<path d="M6 20V9l6-5 6 5v11zM9 20v-5h6v5"/>', speed: '<path d="M4 17a8 8 0 1116 0M12 17l4-6"/>', batt: '<rect x="3" y="8" width="16" height="9" rx="2"/><path d="M21 11v3"/>',
+  save: '<path d="M3 17l6-6 4 4 8-8M15 7h6v6"/>', plane: '<path d="M12 3v7M4 13l8-3 8 3M9 21l3-4 3 4"/>', clock: '<circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/>', shield: '<path d="M12 3l8 3v6c0 4.5-3.2 7.8-8 9-4.8-1.2-8-4.5-8-9V6z"/>', pin: '<path d="M12 21s-6-5.2-6-10a6 6 0 1112 0c0 4.8-6 10-6 10z"/><circle cx="12" cy="11" r="2"/>'
+};
+function inPoly(x, y, poly) { let c = false; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) { const a = poly[i], b = poly[j]; if ((a[1] > y) !== (b[1] > y) && x < (b[0] - a[0]) * (y - a[1]) / (b[1] - a[1]) + a[0]) c = !c; } return c; }
+function fieldTerrain() {
+  if (!ST.z || !ST.closed || ST.poly.length < 3) return null;
+  const xs = ST.poly.map(p => p[0]), ys = ST.poly.map(p => p[1]);
+  let n = 0, sum = 0, mx = 0, zmn = 1e9, zmx = -1e9, zs = 0;
+  for (let x = Math.min(...xs); x <= Math.max(...xs); x += 4) for (let y = Math.min(...ys); y <= Math.max(...ys); y += 4) {
+    if (!inPoly(x, y, ST.poly)) continue;
+    const e = 2.5, gx = (zAt(x + e, y) - zAt(x - e, y)) / (2 * e), gy = (zAt(x, y + e) - zAt(x, y - e)) / (2 * e);
+    const dg = Math.atan(Math.hypot(gx, gy)) * 57.2958, z = zAt(x, y);
+    n++; sum += dg; mx = Math.max(mx, dg); zmn = Math.min(zmn, z); zmx = Math.max(zmx, z); zs += z;
+  }
+  return n ? { mean: sum / n, max: mx, relief: zmx - zmn, elev: zs / n } : null;
+}
+function fieldCard() {
+  const box = $('ftiles'); if (!box) return;
+  const tile = (ic, lab, val) => `<div class="ftile"><i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${FI[ic]}</svg></i><small>${lab}</small><b>${val}</b></div>`;
+  const ha = polyHa(), ft = fieldTerrain(), t = ST.ftab, dash = '–';
+  let tiles;
+  if (t === 'terrain') tiles = [tile('slope', 'Mean slope', ft ? ft.mean.toFixed(1) + '°' : dash), tile('slope', 'Steepest', ft ? ft.max.toFixed(0) + '°' : dash), tile('relief', 'Height range', ft ? ft.relief.toFixed(0) + ' m' : dash), tile('elev', 'Elevation', ft ? ft.elev.toFixed(0) + ' m' : dash)];
+  else if (t === 'drone') tiles = [tile('tank', 'Tank', ($('p_tank_l').value || dash) + ' L'), tile('spray', 'Spray', ($('p_l_per_ha').value || dash) + ' L/ha'), tile('speed', 'Speed', ($('p_spray_kmh').value || dash) + ' km/h'), tile('batt', 'Reserve', ($('p_reserve').value || dash) + ' %')];
+  else if (t === 'plan') { const m = ST.sum; tiles = [tile('save', 'Battery saved', m ? (m.sav >= 0 ? '' : '−') + Math.abs(m.sav).toFixed(1) + '%' : dash), tile('plane', 'Take-offs', m ? m.sorties : dash), tile('clock', 'Minutes', m ? m.minutes.toFixed(0) : dash), tile('shield', 'Tree hits', m ? m.contacts : dash)]; }
+  else tiles = [tile('area', 'Area', ST.closed ? ha.toFixed(2) + ' ha' : dash), tile('tree', 'Trees', ST.closed || ST.trees.length ? ST.trees.length : dash), tile('slope', 'Slope', ft ? ft.mean.toFixed(1) + '°' : dash), tile('pin', 'Refill', ST.depot ? 'Placed' : dash)];
+  box.innerHTML = tiles.join('');
+  document.querySelectorAll('#ftabs button').forEach(b => b.classList.toggle('on', b.dataset.ft === t));
+  // the field drawn on the little map
+  const g = $('fartField'); if (!g) return;
+  const W = 340, H = 230, pad = 56;
+  const site = ST.sites.find(s => s.id === ST.site);
+  let body = '', label = 'Your field', sub = 'Draw a field to see it';
+  if (ST.closed && ST.poly.length >= 3) {
+    const pts = ST.poly.concat(ST.depot ? [ST.depot] : []);
+    const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]), x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+    const k = Math.min((W - 2 * pad) / Math.max(x1 - x0, 1), (H - 2 * pad) / Math.max(y1 - y0, 1));
+    const ox = (W - k * (x1 - x0)) / 2, oy = (H - k * (y1 - y0)) / 2;
+    const X = v => (ox + (v - x0) * k).toFixed(1), Y = v => (H - oy - (v - y0) * k).toFixed(1);
+    body = `<path d="M${ST.poly.map(p => X(p[0]) + ' ' + Y(p[1])).join('L')}Z" fill="#bfe5b2" stroke="#0f2418" stroke-width="2" stroke-linejoin="round"/>` +
+      ST.trees.map(tr => `<circle cx="${X(tr.x)}" cy="${Y(tr.y)}" r="2.6" fill="#1f6f3a"/>`).join('') +
+      (ST.depot ? `<path d="M${X(ST.depot[0])} ${(+Y(ST.depot[1]) - 7)}l6 11h-12z" fill="#ffa94d" stroke="#0f2418" stroke-width="1"/>` : '');
+    label = (site && site.name) || 'Your field'; sub = `${ha.toFixed(2)} ha · ${ST.trees.length} tree${ST.trees.length === 1 ? '' : 's'}`;
+  } else {
+    body = '<path d="M95 70 C120 40 190 40 225 62 C260 85 250 130 215 160 C185 185 130 185 105 160 C80 135 75 95 95 70Z" fill="#bfe5b2" stroke="#0f2418" stroke-width="2" stroke-dasharray="5 4" stroke-linejoin="round" opacity=".75"/>';
+  }
+  g.innerHTML = body + `<g text-anchor="middle"><circle cx="170" cy="${ST.closed ? 24 : 98}" r="0" fill="none"/><text x="170" y="${ST.closed ? 24 : 112}" style="font-size:17px;font-weight:600;fill:#0f2418">${label}</text><text x="170" y="${ST.closed ? 40 : 130}" style="font-size:11px;fill:#4b5a4f">${sub}</text></g>`;
+}
+document.querySelectorAll('#ftabs button').forEach(b => b.onclick = () => { ST.ftab = b.dataset.ft; fieldCard(); });
+['p_tank_l', 'p_l_per_ha', 'p_spray_kmh', 'p_reserve'].forEach(id => $(id).addEventListener('input', fieldCard));
+
+// ------------------------------------------------------------------ evidence page
+let evLoaded = false;
+async function loadEvidence() {
+  if (evLoaded) return;
+  try { $('evidence').innerHTML = renderEvidence(await api('/api/evidence')); evLoaded = true; }
+  catch (e) { $('evidence').innerHTML = `<div class="empty"><b>Could not load the evidence</b><span>${e.message}</span></div>`; }
+}
+function renderEvidence(d) {
+  const F = d.facts || {}, en = d.energy && (d.energy['test (later dates)'] || d.energy.test), ag = d.agents || [];
+  let h = `<div class="nums">
+    <div><div class="num">${F.flights_kept || '-'}</div><div class="lbl">Real flights kept</div><div class="sub">from ${F.flights_raw || '-'} raw DJI Agras log entries, after removing duplicates and non-spraying flights.</div></div>
+    <div><div class="num">${F.test_n || '-'}</div><div class="lbl">Later flights used as a test</div><div class="sub">full-tank flights from later dates, never used to fit the model.</div></div>
+    <div><div class="num">${F.srtm_m ? Math.round(F.srtm_m) + ' m' : '-'}</div><div class="lbl">Source terrain data</div><div class="sub">SRTM elevation, resampled to a ${F.grid_m || 5} m grid. Smooth, so real slopes may be steeper.</div></div></div>`;
+  if (en) {
+    const rows = [['Physics model (hover + climb + drag, with tank weight)', en['model as saved (scale .915)'], true],
+      ['Same model with scale refit on the earlier flights', en['refit scale on calibration'], true],
+      ['Model that ignores tank weight', en['no-mass (constant half tank)'], false],
+      ['Plain "average rate x time" baseline', en['constant rate x time'], false]].filter(r => r[1]);
+    const mx = Math.max(...rows.map(r => r[1].mape), 1);
+    h += `<div class="card white bars"><h3>How close is the energy model to real flights?</h3>
+      <div class="small">Average error in the battery used per flight, on ${F.test_n || 'the'} later flights the model had not seen. Lower is better.</div>
+      <div style="margin-top:10px">${rows.map(r => `<div class="br ${r[2] ? 'hi' : ''}"><span>${r[0]}</span><div class="tr"><i style="width:${(100 * r[1].mape / mx).toFixed(0)}%"></i></div><span class="v">${r[1].mape.toFixed(1)}%</span></div>`).join('')}</div>
+      <div class="small" style="margin-top:8px">Be careful how you read this: on average the model is about as accurate as the plain baseline. Its purpose is different. The baseline cannot react to load or slope, so it cannot compare routes. The model can, and it is clearly better than the version that ignores tank weight.</div>
+      <table style="margin-top:12px"><tr><th>Model</th><th>Mean error (battery %)</th><th>Relative error</th><th>R²</th></tr>
+      ${rows.map(r => `<tr><td>${r[0]}</td><td>${r[1].mae.toFixed(2)}</td><td>${r[1].mape.toFixed(1)}%</td><td>${r[1].r2.toFixed(2)}</td></tr>`).join('')}</table></div>`;
+  }
+  h += `<div class="card white"><h3>How the AI agent was tested</h3>
+    <div class="small">The agent is trained on random fields cut from the western 60% of one elevation tile, and tested on fields from the eastern 40%, so the test is new ground. "Saving" is the battery saved against the usual route, per field, counting a field as a failure if the route touches a tree.</div>`;
+  if (ag.length) {
+    h += `<table style="margin-top:10px"><tr><th>Agent</th><th>Training steps</th><th>Test fields</th><th>Mean saving</th><th>Median</th><th>Fields won</th><th>Fields lost</th></tr>
+      ${ag.map(a => { const t = a.test || {}; return `<tr><td>${a.name}${a.hide_mass ? ' <span class="tag">blind to tank size</span>' : ''}</td><td>${a.steps != null ? a.steps.toLocaleString() : '-'}</td><td>${t.n != null ? t.n : '-'}</td><td>${t.mean != null ? t.mean.toFixed(1) + '%' : '-'}</td><td>${t.median != null ? t.median.toFixed(1) + '%' : '-'}</td><td>${t.wins != null ? t.wins : '-'}</td><td>${t.losses != null ? t.losses : '-'}</td></tr>`; }).join('')}</table>
+      <div class="small" style="margin-top:8px">These results were measured with the original energy model. A re-test with the refit model is still to be done.</div>`;
+  } else h += `<div class="small" style="margin-top:10px">No trained agents were found in the agents folder on this computer.</div>`;
+  h += `</div>`;
+  h += `<div class="card white"><h3>Limits of this prototype</h3><ul class="limits">
+    <li><b>Simulation only.</b> No route has been flown with a real drone.</li>
+    <li><b>Energy model:</b> calibrated on DJI Agras logs. How strongly tank weight changes power is not pinned down by the data yet, so the saving figure has an uncertainty range.</li>
+    <li><b>Terrain:</b> free SRTM elevation is smooth, so real tea slopes are probably steeper. Use the "steeper hills" test on the Drone page.</li>
+    <li><b>The AI agent</b> does not see the battery or the exact tree positions. It decides row direction, sweep, and load per refill; the rows themselves are flown by a rule-based follower.</li>
+    <li><b>Trees</b> are marked by you. Automatic tree detection from the satellite picture is not built yet.</li>
+    ${(d.assumptions || []).filter(x => !/^(Energy|Terrain):/.test(x)).map(x => `<li>${x}</li>`).join('')}</ul></div>`;
+  return h;
+}
 
 // ------------------------------------------------------------------ 3D scene
 const canvas = $('c3d');
@@ -521,7 +691,7 @@ $('obst').onclick = async () => {
 };
 
 // ------------------------------------------------------------------ render loop
-function loop() { requestAnimationFrame(loop); if (dirty && $('c3d').style.display !== 'none') { renderer.render(scene, camera); dirty = false; } }
+function loop() { requestAnimationFrame(loop); if (dirty && ST.page === 'viewer') { renderer.render(scene, camera); dirty = false; } }
 
 // ------------------------------------------------------------------ start
 async function init() {
@@ -531,8 +701,10 @@ async function init() {
   $('strat').innerHTML = ['fixed', 'standard', 'optimised'].map(k => `<option value="${k}">${NAMES[k]}</option>`).join('');
   $('strat').value = 'optimised';
   try { const ag = await api('/api/agents'); $('brain').innerHTML = '<option value="">No agent (plain search planner)</option>' + ag.map(n => `<option value="${n.name}">AI agent: ${n.name}</option>`).join(''); if (ag.length) $('brain').value = ag[0].name; } catch (e) { }
-  info(); placeCam(); loop();
-  if (location.hash === '#demo') { await $('ex').onclick(); await planNow(); }
+  resetResults(); info(); placeCam(); loop(); nav();
+  const hp = location.hash.slice(1);
+  if (PAGES.includes(hp)) go(hp);
+  if (hp === 'demo') { await $('ex').onclick(); await planNow(); }
 }
 window.TS = { ST, planNow, frame };
 init();
