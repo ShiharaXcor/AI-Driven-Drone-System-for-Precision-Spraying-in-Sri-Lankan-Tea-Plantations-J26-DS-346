@@ -898,13 +898,13 @@ class MissionPlanner:
                     except StopIteration:        # not expected: the replay is deterministic
                         k = max(1, int(math.ceil(info["need"] / P.tank - 1e-9)))
                         return min(P.tank, info["need"] / k + 0.2)
-                mag, Sag, _ = self._pack(P, "AI agent route", dec["theta"], dec["flip_rows"], dec["flip_dir"], cb, True)
+                mag, Sag, _ = self._pack(P, "AI agent route", dec["theta"], dec["flip_rows"], dec["flip_dir"], cb, True, order=dec.get("order"))
                 mag["exact_fill"] = "agent"
                 res_strats.append(dict(id="agent", name="AI agent route", metrics=_clean(mag), route=_route(Sag),
                                        description="A trained deep-RL agent chose the row direction, the sweep and how much liquid to load at every refill.",
                                        decisions=dict(theta=dec["theta"], flip_rows=dec["flip_rows"], flip_dir=dec["flip_dir"],
-                                                      loads_l=[round(x, 1) for x in dec["fills"]], model=req["agent_model"])))
-                agent_keep = dict(P=P, theta=dec["theta"], flips=(dec["flip_rows"], dec["flip_dir"]), exact=True, avoid=True)
+                                                      loads_l=[round(x, 1) for x in dec["fills"]], model=req["agent_model"], strip_order=dec.get("strip_order"))))
+                agent_keep = dict(P=P, theta=dec["theta"], flips=(dec["flip_rows"], dec["flip_dir"]), exact=True, avoid=True, order=dec.get("order"))
             except Exception as ex_:                # the plan still works without the agent
                 agent_out = dict(error=str(ex_))
         if keep is not None:
@@ -913,6 +913,7 @@ class MissionPlanner:
                                             ("optimised", float(th_best), (f2, d2), fill2, True)) + \
                     ((("agent",) + (agent_keep["theta"], agent_keep["flips"], True, True),) if agent_keep else ()):
                 keep[key] = dict(P=P, theta=th_, flips=fl_, exact=ex_, avoid=av_,
+                                 **({"order": agent_keep.get("order")} if key == "agent" and agent_keep.get("order") else {}),
                                  route=next(s_ for s_ in res_strats if s_["id"] == key)["route"],
                                  metrics=next(s_ for s_ in res_strats if s_["id"] == key)["metrics"])
         if keep is not None and mff is not None:

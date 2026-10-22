@@ -244,13 +244,13 @@ class MissionEnv(gym.Env):
         return self._obs(False), r, True, False, info
 
 
-def plan_with_agent(model, field, hide_mass=False, tries=8, seed=0):
+def plan_with_agent(model, field, hide_mass=False, tries=8, seed=0, env_cls=None):
     """Run the agent on a field. The first try is the agent's own best guess (deterministic).
     If that route touches a tree or uses too many sorties, try a few more samples of the same agent and keep the best safe one.
     Returns the finished env (env.design, env.fills, env.S) or None."""
     best = None
     for k in range(tries + 1):
-        env = MissionEnv(fixed_fields=[field], hide_mass=hide_mass)
+        env = (env_cls or MissionEnv)(fixed_fields=[field], hide_mass=hide_mass)
         env.rng = np.random.default_rng(seed + k)
         o, _ = env.reset()
         done, info = False, {}

@@ -44,11 +44,17 @@ def _load(name):
 def decide(name, P):
     """run the agent on the planning problem P; return its decisions"""
     import agent_env as A
+    v2 = "_ord" in name                                   # version 2 agents also choose the strip order
+    if v2:
+        import agent_env_v2 as A2
     model = _load(name)
     f = dict(z=P.z, poly=P.poly, trees=[dict(x=float(a), y=float(b), r=float(r)) for (a, b), r in zip(P.trees, P.rad)],
              depot=np.asarray(P.depot, float), tank_l=float(P.tank), params=dict(P.par))
-    env = A.plan_with_agent(model, f, hide_mass=("blind" in name))
+    env = A.plan_with_agent(model, f, hide_mass=("blind" in name), env_cls=(A2.MissionEnv if v2 else None))
     if env is None:
         raise RuntimeError("the agent could not finish a plan for this field")
     th, fr_, fd = env.design
-    return dict(theta=float(th), flip_rows=bool(fr_), flip_dir=bool(fd), fills=[float(x) for x in env.fills])
+    order = getattr(env, "order", None) if v2 else None
+    mode = A2.ORDER_NAMES[getattr(env, "mode", 0)] if v2 else None
+    return dict(theta=float(th), flip_rows=bool(fr_), flip_dir=bool(fd), fills=[float(x) for x in env.fills],
+                order=[int(j) for j in order] if order is not None else None, strip_order=mode)
