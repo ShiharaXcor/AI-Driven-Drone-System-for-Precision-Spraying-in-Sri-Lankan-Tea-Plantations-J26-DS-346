@@ -1,4 +1,5 @@
 // Top view drawn as SVG. The drone always flies "up"; everything else is drawn relative to it.
+// A small north-up compass (top right) shows heading and wind as two separate arrows.
 // x = sideways distance (m, right is +), y = along the flight line (m).
 
 const W = 640, H = 400;
@@ -19,6 +20,18 @@ export default function TopView({ r, wind, windDir, heading, swath }) {
   const end = { x: 3 * fx, y: 3 * fy };
 
   const ticks = [-8, -6, -4, -2, 0, 2, 4, 6, 8];
+
+  // ---- small north-up compass: heading and wind as two separate arrows ----
+  const C = { x: W - 70, y: 72, r: 50 };
+  const pt = (deg, k) => ({ x: C.x + k * C.r * Math.sin((deg * Math.PI) / 180),
+                            y: C.y - k * C.r * Math.cos((deg * Math.PI) / 180) });
+  const hEnd = pt(heading, 0.85);
+  const wStart = pt(windDir, 1.0), wEnd = pt(windDir, 0.3);
+  const relDeg = ((((windDir - heading) % 360) + 540) % 360) - 180;      // -180..180, - = left
+  const sideTxt = Math.abs(relDeg) < 10 ? "straight ahead (headwind)"
+    : Math.abs(relDeg) > 170 ? "straight behind (tailwind)"
+    : Math.abs(Math.abs(relDeg) - 90) <= 10 ? `${relDeg < 0 ? "left" : "right"} side (pure crosswind)`
+    : `${Math.abs(relDeg) < 90 ? "front" : "back"}-${relDeg < 0 ? "left" : "right"}`;
 
   return (
     <div>
@@ -70,14 +83,29 @@ export default function TopView({ r, wind, windDir, heading, swath }) {
             <text x={X(start.x)} y={Y(start.y) - 8} textAnchor="middle" className="label">wind {wind} m/s</text>
           </>
         )}
+        {/* compass (north up) */}
+        <g>
+          <circle cx={C.x} cy={C.y} r={C.r} fill="var(--surface-2, #222)" stroke="var(--grid)" />
+          <text x={C.x} y={C.y - C.r - 6} textAnchor="middle" className="tick">N</text>
+          <line x1={C.x} y1={C.y} x2={hEnd.x} y2={hEnd.y} className="drone" markerEnd="url(#arrow-drone)" />
+          {wind > 0 && <line x1={wStart.x} y1={wStart.y} x2={wEnd.x} y2={wEnd.y} className="wind" markerEnd="url(#arrow-wind)" />}
+          <text x={C.x} y={C.y + C.r + 16} textAnchor="middle" className="tick">map view (north up)</text>
+        </g>
+
         <text x={W / 2} y={H + 42} textAnchor="middle" className="tick">sideways distance (m)  ← left | right →</text>
       </svg>
 
+      <p className="sub">
+        Map: drone flies towards {Math.round(heading)}°, wind comes from {Math.round(windDir)}°.
+        {wind > 0 && <> Wind hits the drone from the <b>{sideTxt}</b> ({Math.abs(Math.round(relDeg))}° from the nose).</>}
+        {" "}The big view is drawn from the drone's point of view (drone always points up).
+      </p>
       <ul className="legend">
         <li><span className="key planned-key" /> Planned path</li>
         <li><span className="key uncorrected-key" /> Spray without correction</li>
         <li><span className="key corrected-key" /> Corrected path</li>
         <li><span className="key wind-key" /> Wind</li>
+        <li>⬆ compass arrow = flight heading</li>
       </ul>
     </div>
   );
