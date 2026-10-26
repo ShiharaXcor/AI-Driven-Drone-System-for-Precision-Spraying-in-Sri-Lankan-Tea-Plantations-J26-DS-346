@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { BarChart3, Grid3x3, Home, ListChecks, Settings } from "lucide-react";
+import { BarChart3, Grid3x3, Home, ListChecks, Plane, Settings } from "lucide-react";
 import { useTheme } from "../context/ThemeContext";
 import { DroneIcon, MoonIcon, SunIcon } from "./Icons";
 
@@ -7,6 +7,7 @@ import { DroneIcon, MoonIcon, SunIcon } from "./Icons";
 const NAV = [
   { to: "/", label: "Home", icon: Home },
   { to: "/prescription", label: "Prescription", icon: Grid3x3 },
+  { to: "/flight", label: "Spray flight", icon: Plane },
   { to: "/missions", label: "Missions", icon: ListChecks },
   { to: "/model", label: "Model", icon: BarChart3 },
   { to: "/settings", label: "Settings", icon: Settings },

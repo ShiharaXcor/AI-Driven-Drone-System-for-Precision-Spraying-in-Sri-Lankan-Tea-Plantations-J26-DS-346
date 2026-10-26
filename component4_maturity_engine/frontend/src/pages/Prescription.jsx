@@ -289,13 +289,14 @@ export default function Prescription() {
               <Download className="w-3 h-3" /> CSV
             </button>
           </div>
+          <Link to={`/flight?mission=${p.mission_id}`}
+            className={`block text-center w-full py-2.5 rounded-full text-xs font-semibold ${s.accentBg} ${s.accentTextOn} mb-2`}>
+            START SPRAY FLIGHT (SIMULATION)
+          </Link>
           <Link to="/prescription"
-            className={`block text-center w-full py-2.5 rounded-full text-xs font-semibold ${s.accentBg} ${s.accentTextOn}`}>
+            className={`block text-center w-full py-2.5 rounded-full text-xs font-semibold border ${s.border} ${s.textPrimary}`}>
             New mapping
           </Link>
-          <p className={`text-[10px] ${s.textMuted} mt-3`}>
-            The spray flight (Pass 2) uses this prescription after system integration.
-          </p>
         </div>
       </div>
     </div>
