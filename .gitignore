@@ -1,0 +1,61 @@
+# ---------- Python ----------
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.ipynb_checkpoints/
+
+# ---------- Secrets (only the .env.example templates are committed) ----------
+.env
+.env.*
+!.env.example
+
+# ---------- Local databases and logs ----------
+*.db
+*.sqlite3
+*.log
+logs/
+
+# ---------- Node / frontend ----------
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# ---------- Models and datasets: never commit these ----------
+*.pt
+*.pth
+*.onnx
+*.ckpt
+*.engine
+*.weights
+ml/*/data/*
+ml/*/artifacts/*
+!ml/*/data/.gitkeep
+!ml/*/artifacts/.gitkeep
+runs/
+mlruns/
+wandb/
+
+# ---------- Backend runtime files ----------
+backend/static/*
+!backend/static/.gitkeep
+
+# ---------- Simulation / ArduPilot outputs ----------
+simulation/**/*.tlog
+simulation/**/*.tlog.raw
+simulation/**/eeprom.bin
+simulation/**/mav.parm
+simulation/**/terrain/
+
+# ---------- Editors / OS ----------
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
